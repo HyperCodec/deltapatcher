@@ -3,6 +3,7 @@ use std::{ops::{Bound, Deref, RangeBounds}, slice::SliceIndex};
 use crate::delta::{Delta, Differentiable};
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Commit<D: Delta, M> {
     delta: D,
     meta: M,
@@ -35,6 +36,7 @@ impl<D: Delta, M> Deref for Commit<D, M> {
 // traverse the list to get nodes rather than immediately fetching
 // them like from a contiguous array.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Timeline<D: Delta, M = ()> {
     commits: Vec<Commit<D, M>>,
 }

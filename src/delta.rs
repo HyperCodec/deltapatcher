@@ -28,6 +28,7 @@ pub trait Delta {
 
 /// A delta which represents item changes in a vector or slice
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDelta<T> {
     /// The non-overlapping splices expressed in
     /// the coordinate system of the vector before
@@ -355,6 +356,7 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
 
 /// A splicing entry in the delta
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDeltaEntry<T> {
     /// The start index of the entry within the vec
     start_index: u32,
@@ -412,6 +414,8 @@ impl<T> SliceDeltaEntry<T> {
 }
 
 /// A delta defined by addition/subtraction.
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AdditiveDelta<T: AddAssign + Copy>(pub T);
 
 impl<T> Delta for AdditiveDelta<T>
