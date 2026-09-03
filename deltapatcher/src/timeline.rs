@@ -1,4 +1,4 @@
-use std::{ops::{Bound, Deref, RangeBounds}, slice::SliceIndex};
+use std::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
 
 use crate::delta::{Delta, Differentiable};
 
@@ -42,16 +42,10 @@ pub struct Timeline<D: Delta, M = ()> {
 }
 
 impl<D: Delta, M> Timeline<D, M> {
-    /// Adds a commit to the timeline. Returns the index of the commit.
-    pub fn add_commit(&mut self, commit: Commit<D, M>) -> usize {
-        self.commits.push(commit);
-        self.commits.len()-1
-    }
-
-    /// Removes and return the most recent commit.
-    /// Returns [`None`] if the timeline is empty.
-    pub fn pop_commit(&mut self) -> Option<Commit<D, M>> {
-        self.commits.pop()
+    pub fn new() -> Self {
+        Self {
+            commits: Vec::new(),
+        }
     }
 
     /// Removes the last n commits, aggregates them, and then returns the delta.
@@ -180,5 +174,25 @@ impl<D: Delta, M> Deref for Timeline<D, M> {
 
     fn deref(&self) -> &Self::Target {
         &self.commits
+    }
+}
+
+impl<D: Delta, M> DerefMut for Timeline<D, M> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.commits
+    }
+}
+
+impl<D: Delta> FromIterator<D> for Timeline<D, ()> {
+    fn from_iter<T: IntoIterator<Item = D>>(iter: T) -> Self {
+        iter.into_iter().map(|d| Commit::new(d, ())).collect()
+    }
+}
+
+impl<D: Delta, M> FromIterator<Commit<D, M>> for Timeline<D, M> {
+    fn from_iter<T: IntoIterator<Item = Commit<D, M>>>(iter: T) -> Self {
+        Self {
+            commits: iter.into_iter().collect()
+        }
     }
 }

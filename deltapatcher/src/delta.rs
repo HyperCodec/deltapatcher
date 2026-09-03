@@ -360,61 +360,49 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
 }
 
 impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
-    /// Applies `delta` in place, left to right, compacting as it goes.
+    /// Applies `delta`, panicking if the result would be longer than `self`.
     ///
-    /// A slice can't grow, so this panics if any entry's added items don't
-    /// fit into the space already freed up by removals at that point —
-    /// which is exactly the condition under which `Vec::patch` would have
-    /// needed to lengthen the container.
+    /// Unlike `Vec::patch`, this can't grow the underlying storage, and
+    /// arbitrary insert/remove orderings (e.g. from a permutation-heavy
+    /// diff) can require inserting content before the compensating removal
+    /// has "freed" room for it — which a single in-place forward pass
+    /// cannot do without risking overwriting not-yet-read data. So this
+    /// builds the result into a scratch buffer first, then copies back.
     ///
     /// Shrinking is allowed: elements past the new effective length are
-    /// left with stale, duplicated trailing values rather than cleared,
-    /// since a slice has no way to represent "shorter than its actual
-    /// length." Callers relying on shrinking deltas need to track the
-    /// intended length separately (e.g. alongside a length-prefixed
-    /// encoding, or by only ever diffing same-length slices).
+    /// left with stale trailing values, since a slice can't represent
+    /// "shorter than its own length."
     fn patch(&mut self, delta: &SliceDelta<T>) {
+        let mut buffer: Vec<T> = Vec::with_capacity(self.len());
         let mut read = 0usize;
-        let mut write = 0usize;
 
         for entry in delta.entries.values() {
             let start = entry.start_index as usize;
-
-            // Carry the unchanged gap before this entry forward, compacted
-            // against whatever slack earlier removals have already freed.
-            while read < start {
-                if write != read {
-                    self[write] = self[read].clone();
-                }
-                write += 1;
-                read += 1;
-            }
-
-            read += entry.remove as usize;
-
-            let add_len = entry.add.len();
-            assert!(
-                write + add_len <= read,
-                "patch would increase the length of the slice"
-            );
-            for item in &entry.add {
-                self[write] = item.clone();
-                write += 1;
-            }
+            buffer.extend_from_slice(&self[read..start]);
+            read = start + entry.remove as usize;
+            buffer.extend(entry.add.iter().cloned());
         }
+        buffer.extend_from_slice(&self[read..]);
 
-        // Carry the unchanged tail forward the same way.
-        while read < self.len() {
-            if write != read {
-                self[write] = self[read].clone();
-            }
-            write += 1;
-            read += 1;
-        }
+        assert!(
+            buffer.len() <= self.len(),
+            "patch would increase the length of the slice"
+        );
+        self[..buffer.len()].clone_from_slice(&buffer);
     }
 
     fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
+    }
+}
+
+impl<T: Clone + PartialEq, const N: usize> Differentiable<SliceDelta<T>> for [T; N] {
+    fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
+        <[T]>::differentiate(self, initial)
+    }
+
+    fn patch(&mut self, delta: &SliceDelta<T>) {
+        <[T]>::patch(self, delta)
     }
 }
 
@@ -622,6 +610,16 @@ mod tests {
 
             let mut buf = initial;
             buf.patch(&delta);
+        }
+
+        #[test]
+        fn slice_patch_permutation_no_extra_space() {
+            let initial: [u8; 10] = [4, 5, 6, 7, 8, 9, 10, 1, 2, 3];
+            let final_ = vec![8, 1, 5, 2, 3, 6, 7, 9, 10, 4];
+            let delta = final_.differentiate(&initial.to_vec());
+            let mut buf = initial;
+            buf.patch(&delta); // previously panicked with the compaction version
+            assert_eq!(buf, [8, 1, 5, 2, 3, 6, 7, 9, 10, 4]);
         }
     }
     

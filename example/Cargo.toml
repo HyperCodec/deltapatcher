@@ -18,6 +18,11 @@ required-features = ["macros"]
 name = "serde"
 path = "src/bin/serde.rs"
 required-features = ["serde_json"]
+
+[[bin]]
+name = "video_stream"
+path = "src/bin/video_stream.rs"
+
 [features]
 default = []
 macros = ["deltapatcher/macros"]
