@@ -56,8 +56,6 @@ fn differentiable_struct(vis: syn::Visibility, ident: syn::Ident, s: syn::DataSt
         }
     }
 
-    let config_references_delta = config.delta_name.is_some() || config.delta_derive.is_some() || config.delta_vis.is_some();
-
     let delta_name = config.delta_name_or_default(&ident);
     // TODO span for delta derive (i.e. highlight the arg when using invalid type)
     let delta_derive = config.delta_derive
@@ -133,15 +131,20 @@ fn differentiable_struct(vis: syn::Visibility, ident: syn::Ident, s: syn::DataSt
         },
         syn::Fields::Unit => {
             // unit struct, implement no-op
-            if config_references_delta {
-                // TODO attribute span or turn into deadcode warning
-                panic!("Delta types are not defined for unit structs");
-            }
 
             quote! {
-                impl deltapatcher::delta::Differentiable<()> for #ident {
-                    fn differentiate(&self, _initial: &Self) -> () {}
-                    fn patch(&mut self, _delta: &()) {}
+                #[doc = #delta_doc]
+                #delta_derive
+                #delta_vis struct #delta_name;
+
+                impl deltapatcher::delta::Delta for #delta_name {
+                    fn aggregate(&mut self, _next: &Self) {}
+                    fn aggregate_owned(&mut self, _next: Self) {}
+                }
+
+                impl deltapatcher::delta::Differentiable<#delta_name> for #ident {
+                    fn differentiate(&self, _initial: &Self) -> #delta_name { #delta_name }
+                    fn patch(&mut self, _delta: &#delta_name) {}
                 }
             }
         },
