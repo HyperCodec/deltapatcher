@@ -11,8 +11,6 @@ pub trait Differentiable<D: Delta> {
     fn patch(&mut self, delta: &D);
 }
 
-// TODO implement a bytemuck differentiable that's essentially Vec<u8> differentiation.
-
 /// An abstract trait representing the change in two states.
 /// These should be internally expressed against the state
 /// from immediately before they are applied.
@@ -273,6 +271,79 @@ impl<T: Clone> Delta for SliceDelta<T> {
     }
 }
 
+/// Computes a [`SliceDelta`] representing the changes needed to turn
+/// `initial` into `final_`, via LCS-based diffing. Shared between the
+/// `Vec<T>` and `[T]` [`Differentiable`] impls — diffing itself doesn't
+/// care whether the result will later be applied to a resizable or
+/// fixed-size container; only `patch` differs between them.
+fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<T> {
+    let n = initial.len();
+    let m = final_.len();
+
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if initial[i] == final_[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+
+    let mut entries = BTreeMap::new();
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut run_start: Option<usize> = None;
+    let mut run_add: Vec<T> = Vec::new();
+    let mut run_remove = 0u32;
+
+    macro_rules! flush {
+        () => {
+            #[allow(unused_assignments)]
+            {
+                if let Some(start) = run_start.take() {
+                    if run_remove != 0 || !run_add.is_empty() {
+                        let entry = SliceDeltaEntry::new(
+                            start as u32,
+                            run_remove,
+                            std::mem::take(&mut run_add),
+                        );
+                        entries.insert(entry.start_index, entry);
+                    }
+                    run_remove = 0;
+                }
+            }
+        };
+    }
+
+    while i < n && j < m {
+        if initial[i] == final_[j] {
+            flush!();
+            i += 1;
+            j += 1;
+        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+            run_start.get_or_insert(i);
+            run_remove += 1;
+            i += 1;
+        } else {
+            run_start.get_or_insert(i);
+            run_add.push(final_[j].clone());
+            j += 1;
+        }
+    }
+    if i < n {
+        run_start.get_or_insert(i);
+        run_remove += (n - i) as u32;
+    }
+    if j < m {
+        run_start.get_or_insert(n);
+        run_add.extend(final_[j..].iter().cloned());
+    }
+    flush!();
+
+    SliceDelta { entries }
+}
+
 impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         for entry in delta.entries.values().rev() {
@@ -284,82 +355,68 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
     }
 
     fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
-        let final_ = self;
-        let n = initial.len();
-        let m = final_.len();
-
-        // Standard LCS DP: lcs[i][j] = length of the LCS of initial[i..]
-        // and final_[j..]. O(n*m) time and space — fine for modest inputs;
-        // swap for Myers/Hirschberg if this ever needs to handle huge
-        // vectors.
-        let mut lcs = vec![vec![0u32; m + 1]; n + 1];
-        for i in (0..n).rev() {
-            for j in (0..m).rev() {
-                lcs[i][j] = if initial[i] == final_[j] {
-                    lcs[i + 1][j + 1] + 1
-                } else {
-                    lcs[i + 1][j].max(lcs[i][j + 1])
-                };
-            }
-        }
-
-        let mut entries = BTreeMap::new();
-        let (mut i, mut j) = (0usize, 0usize);
-        let mut run_start: Option<usize> = None;
-        let mut run_add: Vec<T> = Vec::new();
-        let mut run_remove = 0u32;
-
-        
-        macro_rules! flush {
-            () => {
-                #[allow(unused_assignments)]
-                {
-                    if let Some(start) = run_start.take() {
-                        if run_remove != 0 || !run_add.is_empty() {
-                            let entry = SliceDeltaEntry::new(
-                                start as u32,
-                                run_remove,
-                                std::mem::take(&mut run_add),
-                            );
-                            entries.insert(entry.start_index, entry);
-                        }
-                        run_remove = 0;
-                    }
-                }
-            };
-        }
-
-        while i < n && j < m {
-            if initial[i] == final_[j] {
-                // Equal characters are always part of *some* optimal LCS,
-                // so it's safe to greedily take the match here.
-                flush!();
-                i += 1;
-                j += 1;
-            } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-                run_start.get_or_insert(i);
-                run_remove += 1;
-                i += 1;
-            } else {
-                run_start.get_or_insert(i);
-                run_add.push(final_[j].clone());
-                j += 1;
-            }
-        }
-        if i < n {
-            run_start.get_or_insert(i);
-            run_remove += (n - i) as u32;
-        }
-        if j < m {
-            run_start.get_or_insert(n);
-            run_add.extend(final_[j..].iter().cloned());
-        }
-        flush!();
-
-        SliceDelta { entries }
+        diff_slices(initial, self)
     }
 }
-// TODO implement for [T] but throw error instead of increasing the size of the delta.
+
+impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
+    /// Applies `delta` in place, left to right, compacting as it goes.
+    ///
+    /// A slice can't grow, so this panics if any entry's added items don't
+    /// fit into the space already freed up by removals at that point —
+    /// which is exactly the condition under which `Vec::patch` would have
+    /// needed to lengthen the container.
+    ///
+    /// Shrinking is allowed: elements past the new effective length are
+    /// left with stale, duplicated trailing values rather than cleared,
+    /// since a slice has no way to represent "shorter than its actual
+    /// length." Callers relying on shrinking deltas need to track the
+    /// intended length separately (e.g. alongside a length-prefixed
+    /// encoding, or by only ever diffing same-length slices).
+    fn patch(&mut self, delta: &SliceDelta<T>) {
+        let mut read = 0usize;
+        let mut write = 0usize;
+
+        for entry in delta.entries.values() {
+            let start = entry.start_index as usize;
+
+            // Carry the unchanged gap before this entry forward, compacted
+            // against whatever slack earlier removals have already freed.
+            while read < start {
+                if write != read {
+                    self[write] = self[read].clone();
+                }
+                write += 1;
+                read += 1;
+            }
+
+            read += entry.remove as usize;
+
+            let add_len = entry.add.len();
+            assert!(
+                write + add_len <= read,
+                "patch would increase the length of the slice"
+            );
+            for item in &entry.add {
+                self[write] = item.clone();
+                write += 1;
+            }
+        }
+
+        // Carry the unchanged tail forward the same way.
+        while read < self.len() {
+            if write != read {
+                self[write] = self[read].clone();
+            }
+            write += 1;
+            read += 1;
+        }
+    }
+
+    fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
+        diff_slices(initial, self)
+    }
+}
 
 /// A splicing entry in the delta
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -532,6 +589,39 @@ mod tests {
             let entry = delta.entries.values().next().unwrap();
             assert_eq!(entry.start_index, 0);
             assert_eq!(entry.add, vec![1, 2, 3]);
+        }
+
+        #[test]
+        fn slice_patch_same_length() {
+            let initial = [1, 2, 3, 4];
+            let final_ = vec![1, 5, 3, 6];
+            let delta = final_.differentiate(&initial.to_vec());
+
+            let mut buf = initial;
+            buf.patch(&delta);
+            assert_eq!(buf, [1, 5, 3, 6]);
+        }
+
+        #[test]
+        fn slice_patch_shrink_ok() {
+            let initial = [1, 2, 3, 4, 5];
+            let final_ = vec![1, 3, 5];
+            let delta = final_.differentiate(&initial.to_vec());
+
+            let mut buf = initial;
+            buf.patch(&delta);
+            assert_eq!(&buf[..3], [1, 3, 5]); // trailing elements are stale, not checked
+        }
+
+        #[test]
+        #[should_panic(expected = "increase the length")]
+        fn slice_patch_growth_panics() {
+            let initial = [1, 2, 3];
+            let final_ = vec![1, 2, 3, 4];
+            let delta = final_.differentiate(&initial.to_vec());
+
+            let mut buf = initial;
+            buf.patch(&delta);
         }
     }
     

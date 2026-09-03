@@ -18,13 +18,13 @@ required-features = ["macros"]
 name = "serde"
 path = "src/bin/serde.rs"
 required-features = ["serde_json"]
-
 [features]
 default = []
 macros = ["deltapatcher/macros"]
 serde_json = ["dep:serde_json"]
 
 [dependencies]
+rand = "0.10.2"
 serde_json = { version = "1.0.151", optional = true }
 
 [dependencies.deltapatcher]

@@ -54,9 +54,9 @@ impl<D: Delta, M> Timeline<D, M> {
         self.commits.pop()
     }
 
-    /// Removes the last n commits, merges them, and then returns the delta.
+    /// Removes the last n commits, aggregates them, and then returns the delta.
     /// Returns [`None`] if the timeline has less than n elements.
-    pub fn pop_merge(&mut self, n: usize) -> Option<D> {
+    pub fn pop_aggregate(&mut self, n: usize) -> Option<D> {
         if n > self.len() {
             return None;
         }
@@ -68,18 +68,50 @@ impl<D: Delta, M> Timeline<D, M> {
         })
     }
 
-    pub fn len(&self) -> usize {
-        self.commits.len()
-    }
-
-    /// Merges all the commits in the range into one commit.
-    /// Returns None if the range is empty, or the index of the merged commit otherwise.
-    pub fn merge_commits(&mut self, range: impl RangeBounds<usize>, new_meta: M) -> Option<usize> {
-        let i = match range.start_bound() {
-            Bound::Excluded(&i) => i+1,
-            Bound::Included(&i) => i,
+    fn get_starting_index(&self, bound: Bound<&usize>) -> Option<usize> {
+        let i = match bound {
+            Bound::Excluded(i) => *i+1,
+            Bound::Included(i) => *i,
             Bound::Unbounded => 0,
         };
+
+        if i < self.len() {
+            Some(i)
+        } else {
+            None
+        }
+    }
+
+    fn get_ending_index(&self, bound: Bound<&usize>) -> Option<usize> {
+        let i = match bound {
+            Bound::Excluded(i) => *i,
+            Bound::Included(i) => *i+1,
+            Bound::Unbounded => self.len(),
+        };
+        if i <= self.len() {
+            Some(i)
+        } else {
+            None
+        }
+    }
+
+    fn get_bounds(&self, range: impl RangeBounds<usize>) -> Option<(usize, usize)> {
+        let start = self.get_starting_index(range.start_bound())?;
+        let end = self.get_ending_index(range.end_bound())?;
+        if start < end {
+            Some((start, end))
+        } else {
+            None
+        }
+    }
+
+    /// Merges all the commits in the range into one commit,
+    /// returning the index of the merged commit.
+    /// The returned delta represents the change between the state immediately before the left
+    /// bound to immediately after the right bound.
+    /// Returns [`None`] if the range is empty or out of bounds.
+    pub fn merge_commits(&mut self, range: impl RangeBounds<usize>, new_meta: M) -> Option<usize> {
+        let i = self.get_starting_index(range.start_bound())?;
         
         let Some(mut merged) = self.commits.drain(range).reduce(|mut a, b| {
             a.delta.aggregate_owned(b.delta);
@@ -95,7 +127,32 @@ impl<D: Delta, M> Timeline<D, M> {
         Some(i)
     }
 
-    /// Patches multiple commits onto an initial state and returns the resulting final state.
+    /// Gets an aggregate delta from a range of indices.
+    /// The returned delta represents the change between the state immediately before the left
+    /// bound to immediately after the right bound.
+    /// Returns [`None`] if the range is empty or out of bounds.
+    pub fn get_aggregate(&self, range: impl RangeBounds<usize>) -> Option<D>
+    where 
+        D: Clone,
+    {
+        let (start, end) = self.get_bounds(range)?;
+
+        if start >= end {
+            return None;
+        }
+
+        let mut delta = self.commits[start].delta.clone();
+        for i in start+1..end {
+            delta.aggregate(&self.commits[i].delta);
+        }
+
+        Some(delta)
+    }
+
+    /// Patches multiple commits onto an initial state.
+    /// The initial state should represent he state immediately
+    /// before the lower bound is applied, and the resulting state
+    /// should represent the state immediately after the upper bound is applied.
     pub fn build_state<T, R>(&self, state: &mut T, range: R)
     where
         T: Differentiable<D>,
