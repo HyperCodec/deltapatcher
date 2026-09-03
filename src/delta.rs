@@ -7,8 +7,8 @@ pub trait Differentiable<D: Delta> {
     /// Get the delta between the final state (self) and initial.
     fn differentiate(&self, initial: &Self) -> D;
 
-    /// Apply a given delta onto self.
-    fn apply_delta(&mut self, delta: &D);
+    /// Apply a given delta's changes onto self.
+    fn patch(&mut self, delta: &D);
 }
 // TODO implement a bytemuck differentiable that's essentially Vec<u8> differentiation.
 
@@ -266,7 +266,7 @@ impl<T: Clone> Delta for SliceDelta<T> {
 }
 
 impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
-    fn apply_delta(&mut self, delta: &SliceDelta<T>) {
+    fn patch(&mut self, delta: &SliceDelta<T>) {
         for entry in delta.entries.values().rev() {
             let start = entry.start_index as usize;
             let end = start + entry.remove as usize;
@@ -423,6 +423,8 @@ where
     }
 }
 
+// arithmetic overflow is necessary for some edge cases to work properly
+#[allow(arithmetic_overflow)]
 impl<A, B> Differentiable<AdditiveDelta<B>> for A
 where 
     A: AddAssign<B>,
@@ -433,7 +435,7 @@ where
         AdditiveDelta(self - initial)
     }
 
-    fn apply_delta(&mut self, delta: &AdditiveDelta<B>) {
+    fn patch(&mut self, delta: &AdditiveDelta<B>) {
         *self += delta.0;
     }
 }
@@ -445,7 +447,7 @@ mod tests {
     fn assert_roundtrip(initial: Vec<i32>, final_: Vec<i32>) {
         let delta = final_.differentiate(&initial);
         let mut applied = initial.clone();
-        applied.apply_delta(&delta);
+        applied.patch(&delta);
         assert_eq!(applied, final_);
     }
 
@@ -468,7 +470,7 @@ mod tests {
         d1.aggregate(&d2);
 
         let mut applied = a.clone();
-        applied.apply_delta(&d1);
+        applied.patch(&d1);
         assert_eq!(applied, c);
     }
 
@@ -483,4 +485,6 @@ mod tests {
         assert_eq!(entry.start_index, 0);
         assert_eq!(entry.add, vec![1, 2, 3]);
     }
+
+    // TODO additive delta
 }
