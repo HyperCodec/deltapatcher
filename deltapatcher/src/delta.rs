@@ -1,8 +1,6 @@
-use std::{
-    collections::{BTreeMap, VecDeque},
-    ops::{AddAssign, Sub},
-};
+use std::collections::{BTreeMap, VecDeque};
 
+// TODO create derive macro for structs with differentiable elements.
 pub trait Differentiable<D: Delta> {
     /// Get the delta between the final state (self) and initial.
     fn differentiate(&self, initial: &Self) -> D;
@@ -18,6 +16,10 @@ pub trait Differentiable<D: Delta> {
 pub trait Delta {
     /// Layer another delta on top of the current one.
     fn aggregate(&mut self, next: &Self);
+
+    /// Layer another delta on top of the current one, but take
+    /// ownership of the argument. This should be a more optimized
+    /// hot path than [`aggregate`][Delta::aggregate] due to less cloning.
     fn aggregate_owned(&mut self, next: Self)
     where
         Self: Sized
@@ -27,6 +29,8 @@ pub trait Delta {
 }
 
 /// A delta which represents item changes in a vector or slice
+// TODO create a variant of [`SliceDelta`] for types like structs which may contain
+// large enough items to differentiate rather than cloning.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDelta<T> {
@@ -65,7 +69,7 @@ impl<T> SliceDelta<T> {
     /// a partial conflict — `next` is treated as authoritative for any
     /// range it claims.
     pub fn aggregate_entry(&mut self, mut next: SliceDeltaEntry<T>) {
-        // At most one existing entry can touch/overlap `next` from the left
+        // at most one existing entry can touch/overlap `next` from the left
         // (entries are non-overlapping, so the immediate predecessor is the
         // only candidate).
         let lower = self
@@ -80,7 +84,7 @@ impl<T> SliceDelta<T> {
             next = merge_two(prev, next);
         }
 
-        // Any number of entries can touch/overlap from the right, so keep
+        // any number of entries can touch/overlap from the right, so keep
         // absorbing until nothing more qualifies.
         loop {
             let upper = self

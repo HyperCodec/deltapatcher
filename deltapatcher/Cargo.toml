@@ -1,0 +1,13 @@
+[package]
+name = "deltapatcher"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+deltapatcher-macros = { workspace = true, optional = true }
+serde = { version = "1.0.229", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+macros = ["dep:deltapatcher-macros"]
