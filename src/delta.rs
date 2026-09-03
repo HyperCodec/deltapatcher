@@ -472,7 +472,7 @@ impl<T: WrappingArithmetic> Differentiable<ArithmeticDelta<Self>> for T
     }
 }
 
-// TODO generic additive (or scalar?) delta for types which doesn't care about overflows.
+// TODO generic additive (or scalar?) delta for types which don't care about overflows.
 
 #[cfg(test)]
 mod tests {
@@ -528,7 +528,7 @@ mod tests {
         }
     }
     
-    mod additive {
+    mod arithmetic {
         use super::*;
 
         #[test]
