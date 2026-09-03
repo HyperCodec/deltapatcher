@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, VecDeque};
 
-// TODO create derive macro for structs with differentiable elements.
+#[cfg(feature = "macros")]
+pub use deltapatcher_macros::Differentiable;
+
 pub trait Differentiable<D: Delta> {
     /// Get the delta between the final state (self) and initial.
     fn differentiate(&self, initial: &Self) -> D;
@@ -8,6 +10,7 @@ pub trait Differentiable<D: Delta> {
     /// Apply a given delta's changes onto self.
     fn patch(&mut self, delta: &D);
 }
+
 // TODO implement a bytemuck differentiable that's essentially Vec<u8> differentiation.
 
 /// An abstract trait representing the change in two states.
