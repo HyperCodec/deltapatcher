@@ -1,5 +1,5 @@
 [workspace]
-members = ["deltapatcher", "deltapatcher-macros"]
+members = ["deltapatcher", "deltapatcher-macros", "example"]
 resolver = "2"
 
 [workspace.package]
@@ -8,4 +8,5 @@ edition = "2024"
 authors = ["HyperCodec"]
 
 [workspace.dependencies]
+deltapatcher = { path = "deltapatcher" }
 deltapatcher-macros = { path = "deltapatcher-macros" }
