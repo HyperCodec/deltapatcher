@@ -416,79 +416,129 @@ impl<T> SliceDeltaEntry<T> {
 /// A delta defined by addition/subtraction.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct AdditiveDelta<T: AddAssign + Copy>(pub T);
+pub struct ArithmeticDelta<T: WrappingArithmetic>(pub T);
 
-impl<T> Delta for AdditiveDelta<T>
+impl<T> Delta for ArithmeticDelta<T>
 where 
-    T: AddAssign + Copy,
+    T: WrappingArithmetic,
 {
     fn aggregate(&mut self, next: &Self) {
-        self.0 += next.0;
+        self.0 = self.0.wrapping_add(next.0);
     }
 }
 
 // arithmetic overflow is necessary for some edge cases to work properly
-#[allow(arithmetic_overflow)]
-impl<A, B> Differentiable<AdditiveDelta<B>> for A
-where 
-    A: AddAssign<B>,
-    for<'a> &'a A: Sub<Output = B>,
-    B: AddAssign + Copy,
+pub trait WrappingArithmetic: Copy {
+    fn wrapping_add(self, rhs: Self) -> Self;
+    fn wrapping_sub(self, rhs: Self) -> Self;
+}
+
+macro_rules! impl_wrapping_arith {
+    ($T: ty) => {
+        impl WrappingArithmetic for $T {
+            fn wrapping_add(self, rhs: $T) -> $T {
+                <$T>::wrapping_add(self, rhs)
+            }
+
+            fn wrapping_sub(self, rhs: $T) -> $T {
+                <$T>::wrapping_sub(self, rhs)
+            }
+        }
+    };
+    ($($T: ty),*) => {
+        $(impl_wrapping_arith!($T);)*
+    };
+}
+
+impl_wrapping_arith! {
+    u8,
+    u16,
+    u32,
+    u64,
+    i8,
+    i16,
+    i32,
+    i64
+}
+
+impl<T: WrappingArithmetic> Differentiable<ArithmeticDelta<Self>> for T
 {
-    fn differentiate(&self, initial: &Self) -> AdditiveDelta<B> {
-        AdditiveDelta(self - initial)
+    fn differentiate(&self, initial: &Self) -> ArithmeticDelta<Self> {
+        ArithmeticDelta(self.wrapping_sub(*initial))
     }
 
-    fn patch(&mut self, delta: &AdditiveDelta<B>) {
-        *self += delta.0;
+    fn patch(&mut self, delta: &ArithmeticDelta<Self>) {
+        *self = self.wrapping_add(delta.0);
     }
 }
+
+// TODO generic additive (or scalar?) delta for types which doesn't care about overflows.
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn assert_roundtrip(initial: Vec<i32>, final_: Vec<i32>) {
+    fn assert_roundtrip<T, D>(initial: T, final_: T)
+    where 
+        T: Differentiable<D> + Clone + PartialEq + std::fmt::Debug,
+        D: Delta,
+    {
         let delta = final_.differentiate(&initial);
         let mut applied = initial.clone();
         applied.patch(&delta);
         assert_eq!(applied, final_);
     }
+    
+    mod slice {
+        use super::*;
 
-    #[test]
-    fn differentiate_and_apply() {
-        assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
-        assert_roundtrip(vec![1, 2, 3], vec![]);
-        assert_roundtrip(vec![], vec![1, 2, 3]);
-        assert_roundtrip(vec![1, 2, 3], vec![1, 2, 3]);
+        #[test]
+        fn differentiate_and_apply() {
+            assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
+            assert_roundtrip(vec![1, 2, 3], vec![]);
+            assert_roundtrip(vec![], vec![1, 2, 3]);
+            assert_roundtrip(vec![1, 2, 3], vec![1, 2, 3]);
+        }
+
+        #[test]
+        fn aggregate_matches_direct_diff() {
+            let a = vec![1, 2, 3, 4, 5];
+            let b = vec![1, 9, 3, 4, 10, 5];
+            let c = vec![9, 3, 11, 4, 10];
+
+            let mut d1 = b.differentiate(&a);
+            let d2 = c.differentiate(&b);
+            d1.aggregate(&d2);
+
+            let mut applied = a.clone();
+            applied.patch(&d1);
+            assert_eq!(applied, c);
+        }
+
+        #[test]
+        fn aggregate_entry_merges_touching_ranges() {
+            let mut delta = SliceDelta::<i32>::new();
+            delta.aggregate_entry(SliceDeltaEntry::replace(0, vec![1, 2]));
+            delta.aggregate_entry(SliceDeltaEntry::replace(2, vec![3]));
+
+            assert_eq!(delta.entries.len(), 1);
+            let entry = delta.entries.values().next().unwrap();
+            assert_eq!(entry.start_index, 0);
+            assert_eq!(entry.add, vec![1, 2, 3]);
+        }
     }
+    
+    mod additive {
+        use super::*;
 
-    #[test]
-    fn aggregate_matches_direct_diff() {
-        let a = vec![1, 2, 3, 4, 5];
-        let b = vec![1, 9, 3, 4, 10, 5];
-        let c = vec![9, 3, 11, 4, 10];
-
-        let mut d1 = b.differentiate(&a);
-        let d2 = c.differentiate(&b);
-        d1.aggregate(&d2);
-
-        let mut applied = a.clone();
-        applied.patch(&d1);
-        assert_eq!(applied, c);
+        #[test]
+        fn differentiate_and_apply() {
+            assert_roundtrip(5u32, 10u32);
+            assert_roundtrip(-1i32, i32::MAX);
+            assert_roundtrip(i32::MIN, i32::MAX);
+            assert_roundtrip(u8::MAX, u8::MIN);
+            // assert_roundtrip(2.34, 6.78);
+            // assert_roundtrip(28930.345f64, 28930.345f64);
+        }
     }
-
-    #[test]
-    fn aggregate_entry_merges_touching_ranges() {
-        let mut delta = SliceDelta::<i32>::new();
-        delta.aggregate_entry(SliceDeltaEntry::replace(0, vec![1, 2]));
-        delta.aggregate_entry(SliceDeltaEntry::replace(2, vec![3]));
-
-        assert_eq!(delta.entries.len(), 1);
-        let entry = delta.entries.values().next().unwrap();
-        assert_eq!(entry.start_index, 0);
-        assert_eq!(entry.add, vec![1, 2, 3]);
-    }
-
-    // TODO additive delta
 }
