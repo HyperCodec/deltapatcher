@@ -46,6 +46,26 @@ impl<D: Delta, M> Timeline<D, M> {
         self.commits.len()-1
     }
 
+    /// Removes and return the most recent commit.
+    /// Returns [`None`] if the timeline is empty.
+    pub fn pop_commit(&mut self) -> Option<Commit<D, M>> {
+        self.commits.pop()
+    }
+
+    /// Removes the last n commits, merges them, and then returns the delta.
+    /// Returns [`None`] if the timeline has less than n elements.
+    pub fn pop_merge(&mut self, n: usize) -> Option<D> {
+        if n > self.len() {
+            return None;
+        }
+
+        let start = self.len() - n;
+        self.commits.drain(start..).map(|c|c.delta).reduce(|mut a, b| {
+            a.aggregate_owned(b);
+            a
+        })
+    }
+
     pub fn len(&self) -> usize {
         self.commits.len()
     }
@@ -93,5 +113,13 @@ impl<D: Delta, M> Timeline<D, M> {
         let mut state = T::default();
         self.build_state(&mut state, range);
         state
+    }
+}
+
+impl<D: Delta, M> Deref for Timeline<D, M> {
+    type Target = [Commit<D, M>];
+
+    fn deref(&self) -> &Self::Target {
+        &self.commits
     }
 }
