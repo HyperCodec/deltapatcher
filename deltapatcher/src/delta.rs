@@ -29,6 +29,8 @@ pub trait Delta {
     }
 }
 
+// TODO reversable delta trait
+
 /// A delta which represents item changes in a vector or slice
 // TODO create a variant of [`SliceDelta`] for types like structs which may contain
 // large enough items to differentiate rather than cloning.

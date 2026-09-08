@@ -7,6 +7,8 @@ type Frame = [Pixel; FRAME_SIZE];
 
 type RawVideo = Vec<Frame>;
 
+type FrameDelta = SliceDelta<Pixel>;
+
 fn epic_video() -> RawVideo {
     vec![
         [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
@@ -23,12 +25,12 @@ struct VideoServer {
     initial_frame: Frame,
 
     // we could also add things like timestamp to commit metadata
-    timeline: Timeline<SliceDelta<Pixel>>,
+    timeline: Timeline<FrameDelta>,
     // TODO data structure that caches states at certain intervals for faster backwards traversal.
 }
 
 impl VideoServer {
-    fn request_next_frame(&self, current: usize) -> &SliceDelta<Pixel> {
+    fn request_next_frame(&self, current: usize) -> &FrameDelta {
         &self.timeline[current]
     }
 }
@@ -89,4 +91,6 @@ fn main() {
         player.next_frame();
         player.display_current_frame();
     }
+
+    dbg!(&server.timeline);
 }
