@@ -48,6 +48,28 @@ impl<D: Delta, M> Timeline<D, M> {
         }
     }
 
+    pub fn push(&mut self, commit: Commit<D, M>) {
+        self.commits.push(commit);
+    }
+
+    /// Removes and returns the last commit. Only tail removal is exposed —
+    /// removing or inserting a commit in the *middle* of the chain would
+    /// invalidate every following commit's delta, since each one is
+    /// expressed relative to the state immediately before it. Use
+    /// [`Timeline::merge_commits`] if you want to consolidate a range
+    /// instead of discarding it.
+    pub fn pop(&mut self) -> Option<Commit<D, M>> {
+        self.commits.pop()
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.commits.truncate(len);
+    }
+
+    pub fn clear(&mut self) {
+        self.commits.clear();
+    }
+
     /// Removes the last n commits, aggregates them, and then returns the delta.
     /// Returns [`None`] if the timeline has less than n elements.
     pub fn pop_aggregate(&mut self, n: usize) -> Option<D> {
@@ -56,7 +78,7 @@ impl<D: Delta, M> Timeline<D, M> {
         }
 
         let start = self.len() - n;
-        self.commits.drain(start..).map(|c|c.delta).reduce(|mut a, b| {
+        self.commits.drain(start..).map(|c| c.delta).reduce(|mut a, b| {
             a.aggregate_owned(b);
             a
         })
@@ -64,7 +86,7 @@ impl<D: Delta, M> Timeline<D, M> {
 
     fn get_starting_index(&self, bound: Bound<&usize>) -> Option<usize> {
         let i = match bound {
-            Bound::Excluded(i) => *i+1,
+            Bound::Excluded(i) => *i + 1,
             Bound::Included(i) => *i,
             Bound::Unbounded => 0,
         };
@@ -79,7 +101,7 @@ impl<D: Delta, M> Timeline<D, M> {
     fn get_ending_index(&self, bound: Bound<&usize>) -> Option<usize> {
         let i = match bound {
             Bound::Excluded(i) => *i,
-            Bound::Included(i) => *i+1,
+            Bound::Included(i) => *i + 1,
             Bound::Unbounded => self.len(),
         };
         if i <= self.len() {
@@ -106,7 +128,7 @@ impl<D: Delta, M> Timeline<D, M> {
     /// Returns [`None`] if the range is empty or out of bounds.
     pub fn merge_commits(&mut self, range: impl RangeBounds<usize>, new_meta: M) -> Option<usize> {
         let i = self.get_starting_index(range.start_bound())?;
-        
+
         let Some(mut merged) = self.commits.drain(range).reduce(|mut a, b| {
             a.delta.aggregate_owned(b.delta);
             a
@@ -117,7 +139,7 @@ impl<D: Delta, M> Timeline<D, M> {
         merged.meta = new_meta;
 
         self.commits.insert(i, merged);
-    
+
         Some(i)
     }
 
@@ -126,7 +148,7 @@ impl<D: Delta, M> Timeline<D, M> {
     /// bound to immediately after the right bound.
     /// Returns [`None`] if the range is empty or out of bounds.
     pub fn get_aggregate(&self, range: impl RangeBounds<usize>) -> Option<D>
-    where 
+    where
         D: Clone,
     {
         let (start, end) = self.get_bounds(range)?;
@@ -136,7 +158,7 @@ impl<D: Delta, M> Timeline<D, M> {
         }
 
         let mut delta = self.commits[start].delta.clone();
-        for i in start+1..end {
+        for i in start + 1..end {
             delta.aggregate(&self.commits[i].delta);
         }
 
@@ -169,6 +191,12 @@ impl<D: Delta, M> Timeline<D, M> {
     }
 }
 
+impl<D: Delta, M> Default for Timeline<D, M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<D: Delta, M> Deref for Timeline<D, M> {
     type Target = [Commit<D, M>];
 
@@ -192,16 +220,79 @@ impl<D: Delta> FromIterator<D> for Timeline<D, ()> {
 impl<D: Delta, M> FromIterator<Commit<D, M>> for Timeline<D, M> {
     fn from_iter<T: IntoIterator<Item = Commit<D, M>>>(iter: T) -> Self {
         Self {
-            commits: iter.into_iter().collect()
+            commits: iter.into_iter().collect(),
         }
     }
 }
 
+impl<D: Delta, M> Extend<Commit<D, M>> for Timeline<D, M> {
+    fn extend<I: IntoIterator<Item = Commit<D, M>>>(&mut self, iter: I) {
+        self.commits.extend(iter);
+    }
+}
+
+impl<D: Delta, M> IntoIterator for Timeline<D, M> {
+    type Item = Commit<D, M>;
+    type IntoIter = std::vec::IntoIter<Commit<D, M>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.commits.into_iter()
+    }
+}
+
+impl<'a, D: Delta, M> IntoIterator for &'a Timeline<D, M> {
+    type Item = &'a Commit<D, M>;
+    type IntoIter = std::slice::Iter<'a, Commit<D, M>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.commits.iter()
+    }
+}
+
+/// Replays `timeline` against `initial_state`, producing the cache-state
+/// vector for it. Shared between [`StateCachedTimeline::from_timeline`]
+/// and [`StateCachedTimeline::set_initial_state`], since "rebuild the
+/// cache against a given starting state" is the same operation either way.
+///
+/// Only replays as far as the last cache boundary — trailing commits past
+/// it don't need to be reflected in any cached state.
+fn build_state_cache<T, D, M>(initial_state: T, timeline: &Timeline<D, M>, interval: usize) -> Vec<T>
+where
+    T: Differentiable<D> + Clone,
+    D: Delta,
+{
+    let cached_count = timeline.len() / interval;
+    let replay_len = cached_count * interval;
+
+    let mut states = Vec::with_capacity(cached_count + 1);
+    states.push(initial_state.clone());
+
+    let mut current = initial_state;
+    for i in 0..replay_len {
+        current.patch(&timeline[i]);
+        if (i + 1) % interval == 0 {
+            states.push(current.clone());
+        }
+    }
+
+    states
+}
+
 /// A timeline type that makes backwards traversal and arbitrary
 /// state retrieval faster (constant-time) by caching the state
-/// at fixed intervals. 
+/// at fixed intervals.
+///
+/// # Invariants
+/// - `states` is never empty. `states[0]` always holds the initial
+///   state — the state immediately before commit `0` — even when
+///   `timeline` has no commits at all.
+/// - `states[k]` holds the state immediately before commit
+///   `k * state_cache_interval` in `timeline`.
+/// - The cache may have up to one "hanging" entry beyond what's strictly
+///   required: a cached state may map to `timeline.len()` itself (the
+///   current/latest state), even though no commit exists there yet.
 pub struct StateCachedTimeline<T, D, M = ()>
-where 
+where
     T: Differentiable<D> + Clone,
     D: Delta,
 {
@@ -215,7 +306,7 @@ where
 }
 
 impl<T, D, M> StateCachedTimeline<T, D, M>
-where 
+where
     T: Differentiable<D> + Clone,
     D: Delta,
 {
@@ -231,19 +322,7 @@ where
     pub fn from_timeline(state_cache_interval: usize, timeline: Timeline<D, M>, initial_state: T) -> Self {
         assert!(state_cache_interval >= 1, "state_cache_interval must be >= 1");
 
-        let mut states = Vec::with_capacity(timeline.len() / state_cache_interval);
-        states.push(initial_state.clone());
-
-        let mut current_state = initial_state;
-
-        // the last state_cache_interval-1 commits don't need
-        // to be iterated over since they aren't being cached right now.
-        for i in 1..timeline.len().saturating_sub(state_cache_interval-1) {
-            current_state.patch(&timeline[i]);
-            if i % state_cache_interval == 0 {
-                states.push(current_state.clone());
-            }
-        }
+        let states = build_state_cache(initial_state, &timeline, state_cache_interval);
 
         Self {
             timeline,
@@ -252,47 +331,75 @@ where
         }
     }
 
-    pub fn from_iter(state_cache_interval: usize, initial_state: T, iter: impl Iterator<Item = Commit<D, M>>) -> Self {
+    pub fn from_iter(
+        state_cache_interval: usize,
+        initial_state: T,
+        iter: impl IntoIterator<Item = Commit<D, M>>,
+    ) -> Self {
         let mut t = Self::new(state_cache_interval, initial_state);
-        t.extend_next(iter);
+        t.extend(iter);
         t
     }
 
+    /// Replaces the initial state and recomputes every cached state
+    /// against it. `O(timeline.len() * T::patch)` — this has to re-walk
+    /// the whole chain, since every existing cached state was derived
+    /// from the old initial state.
+    pub fn set_initial_state(&mut self, state: T) {
+        self.states = build_state_cache(state, &self.timeline, self.state_cache_interval);
+    }
+
     /// Gets the state immediately preceding
-    /// the commit at index `i`. This runs in
+    /// the commit at index `i`. `i` may be `0..=self.timeline.len()`;
+    /// the upper bound asks for the current state (immediately after the
+    /// last commit). This runs in
     /// `O(state_cache_interval * T::patch)` worst case.
-    /// Returns [`None`] if the index is out of bounds.
+    /// Returns [`None`] if `i` is out of that range.
     pub fn get_state_before(&self, i: usize) -> Option<T> {
         let (cache_idx, cache) = self.get_nearest_state(i)?;
 
         let mut state = cache.clone();
         for j in cache_idx..i {
-            state.patch(&self.timeline[j].delta);
+            state.patch(&self.timeline[j]);
         }
 
         Some(state)
     }
 
     /// Gets the state immediately following
-    /// the commit at index `i`. This runs in
-    /// `O(state_cache_interval * T::patch)` worst case.
+    /// the commit at index `i`. `i` must be an existing commit index.
+    /// This runs in `O(state_cache_interval * T::patch)` worst case.
     /// Returns [`None`] if the index is out of bounds.
     pub fn get_state_after(&self, i: usize) -> Option<T> {
+        if i >= self.timeline.len() {
+            return None;
+        }
+
         let (cache_idx, cache) = self.get_nearest_state(i)?;
 
         let mut state = cache.clone();
         for j in cache_idx..=i {
-            state.patch(&self.timeline[j].delta);
+            state.patch(&self.timeline[j]);
         }
 
         Some(state)
     }
 
+    /// The state immediately after the last commit — or the initial
+    /// state, if there are no commits yet.
+    pub fn current_state(&self) -> T {
+        self.get_state_before(self.timeline.len())
+            .expect("timeline.len() is always in bounds for get_state_before")
+    }
+
     /// Returns a reference to the nearest preceding
     /// cached state and its index in the timeline.
-    /// Returns [`None`] if the index is out of bounds.
+    ///
+    /// `i` may be any index in `0..=self.timeline.len()`: the upper bound
+    /// asks for the current state, a "hanging" cache lookup (see the
+    /// struct-level docs). Returns [`None`] if `i` is out of that range.
     pub fn get_nearest_state(&self, i: usize) -> Option<(usize, &T)> {
-        if i >= self.timeline.len() {
+        if i > self.timeline.len() {
             return None;
         }
         let cache_i = self.get_cache_index(i);
@@ -300,11 +407,15 @@ where
         Some((self.cache_to_timeline_index(cache_i), cache))
     }
 
-    /// Gets the index of the nearest preceding cached state
+    /// Gets the index into `states` of the nearest preceding cached state
+    /// for commit index `i` (or `i == timeline.len()`, for the current
+    /// state). Clamped to the last entry actually present, since a cache
+    /// exactly at `i` isn't guaranteed to exist yet — see the "hanging
+    /// cache" note on [`StateCachedTimeline`].
     fn get_cache_index(&self, i: usize) -> usize {
-        debug_assert!(i < self.timeline.len());
-    
-        i / self.state_cache_interval
+        debug_assert!(i <= self.timeline.len());
+
+        (i / self.state_cache_interval).min(self.states.len() - 1)
     }
 
     /// Gets the exact index of the commit immediately following the state at index i.
@@ -318,112 +429,86 @@ where
         i % self.state_cache_interval == 0
     }
 
-    // TODO invariant that there is always an intial state at index 0, even if there are no commits.
-    // (i.e. we can cache states for commits that don't exist yet)
-    /// Pushes a commit to the timeline, caching the current state if necessary.
-    /// This will panic if the timeline is empty, since have no wa3y to initialize the state.
-    /// If you need to push on a timeline that may be empty, see [`push`][StateCachedTimeline::push] or [`push_first`][StateCachedTimeline::push_first].
-    /// Use [`extend_next`][StateCachedTimeline::extend_next] for repeated insertions.
-    pub fn push_next(&mut self, commit: Commit<D, M>) {
-        assert!(!self.timeline.is_empty(), "timeline must not be empty");
-
+    /// Pushes a commit to the timeline, caching the resulting state if it
+    /// lands on a cache boundary.
+    pub fn push(&mut self, commit: Commit<D, M>) {
         let i = self.timeline.len();
-        self.timeline.commits.push(commit);
+        self.timeline.push(commit);
 
-        if self.should_cache(i) {
-            // i is guaranteed to be in bounds since the
-            // timeline always has at least 1 element before insertion
+        // i == 0 is always already covered by the invariant initial cache
+        // entry, so there's nothing to do in that case.
+        if i != 0 && self.should_cache(i) {
+            // i is guaranteed to be in bounds since the timeline always
+            // has at least 1 element before insertion.
             let state = unsafe { self.get_state_before(i).unwrap_unchecked() };
             self.states.push(state);
         }
     }
 
-    /// Pushes a commit to the timeline, caching the current state if necessary.
-    /// If the timeline is empty, this will initialize a new state from [`T::default`][Default::default]
-    /// Use [`extend`][StateCachedTimeline::extend] for repeated iterations.
-    pub fn push(&mut self, commit: Commit<D, M>)
-    where 
-        T: Default,
-    {
-        let i = self.timeline.len();
-        self.timeline.commits.push(commit);
-        if self.should_cache(i) {
-            let state = self.get_state_before(i).unwrap_or_default();
-            self.states.push(state);
+    /// Removes and returns the last commit, discarding any cached state
+    /// that depended on it. See [`Timeline::pop`] for why only tail
+    /// removal is supported.
+    pub fn pop(&mut self) -> Option<Commit<D, M>> {
+        let commit = self.timeline.pop()?;
+        self.drop_stale_cache_entries();
+        Some(commit)
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.timeline.truncate(len);
+        self.drop_stale_cache_entries();
+    }
+
+    pub fn clear(&mut self) {
+        self.truncate(0);
+    }
+
+    /// Drops any cached state whose boundary now lies past the end of the
+    /// timeline, after a `pop`/`truncate` shortened it. `states[0]` is
+    /// never dropped — it's the invariant initial-state entry.
+    fn drop_stale_cache_entries(&mut self) {
+        let len = self.timeline.len();
+        while self.states.len() > 1 && self.cache_to_timeline_index(self.states.len() - 1) > len {
+            self.states.pop();
         }
     }
+}
 
-    /// Push the first commit to an empty timeline, using the provided value as the initial state.
-    /// Panics if the timeline is not empty.
-    /// Use [`extend_first`][StateCachedTimeline::extend_first] for [`push_first`][StateCachedTimeline::push_first]
-    /// + repeated [`push_next`][StateCachedTimeline::push_next] iterations.
-    pub fn push_first(&mut self, commit: Commit<D, M>, state: T) {
-        assert!(self.is_empty(), "timeline must be empty");
-
-        self.timeline.commits.push(commit);
-        self.states.push(state);
-    }
-
-    /// Pushes multiple commits to the timeline, caching states where necessary.
-    /// This will panic if the timeline is empty.
-    pub fn extend_next(&mut self, commits: impl Iterator<Item = Commit<D, M>>) {
-        assert!(!self.timeline.is_empty(), "timeline must not be empty");
-
+impl<T, D, M> Extend<Commit<D, M>> for StateCachedTimeline<T, D, M>
+where
+    T: Differentiable<D> + Clone,
+    D: Delta,
+{
+    fn extend<I: IntoIterator<Item = Commit<D, M>>>(&mut self, iter: I) {
         let start_i = self.timeline.len();
+        // start_i == self.timeline.len() is always a valid query.
+        let mut state = unsafe { self.get_state_before(start_i).unwrap_unchecked() };
 
-        // always get the state of the first commit so that we can patch it.
-        let state = unsafe { self.get_state_before(start_i).unwrap_unchecked() };
-        
-        // extend
-        self.extend_with_state(state, commits);
-    }
-
-    /// Pushes multiple commits to the timeline, caching states where necessary.
-    /// If the timeline is empty, it will infer intial state from [`T::default`][Default::default].
-    pub fn extend(&mut self, commits: impl Iterator<Item = Commit<D, M>>)
-    where
-        T: Default,
-    {
-        let start_i = self.timeline.len();
-        let state = self.get_state_before(start_i).unwrap_or_default();
-
-        // extend
-        self.extend_with_state(state, commits);
-    }
-
-    pub fn extend_first(&mut self, state: T, commits: impl Iterator<Item = Commit<D, M>>) {
-        assert!(self.timeline.is_empty(), "timeline must be empty");
-        self.extend_with_state(state, commits);
-    }
-
-    /// Extend by providing the state immediately before the first commit in the iterator.
-    fn extend_with_state(&mut self, mut state: T, commits: impl Iterator<Item = Commit<D, M>>) {
-        let mut i = self.timeline.len();
-        for commit in commits {
-            // push prev iteration state for the commit at i.            
-            if self.should_cache(i) {
+        let mut i = start_i;
+        for commit in iter {
+            if i != 0 && self.should_cache(i) {
                 self.states.push(state.clone());
             }
 
             // build state linearly by patching it with
             // each commit as we add it
             state.patch(&commit.delta);
-            self.timeline.commits.push(commit);
+            self.timeline.push(commit);
             i += 1;
         }
     }
 }
 
 impl<T, D, M> Deref for StateCachedTimeline<T, D, M>
-where 
+where
     T: Differentiable<D> + Clone,
     D: Delta,
 {
     type Target = Timeline<D, M>;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.timeline
     }
 }
 
-// TODO test suite (especially for the cached one)
+// TODO test
