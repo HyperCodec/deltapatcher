@@ -10,11 +10,24 @@ pub struct Commit<D: Delta, M> {
 }
 
 impl<D: Delta, M> Commit<D, M> {
+    /// Constructs a new commit from the given delta and metadata.
     pub fn new(delta: D, meta: M) -> Self {
         Self {
             delta,
             meta,
         }
+    }
+
+    /// Constructs a new commit with the given delta
+    /// and uses [`M::default`][Default::default] for the metadata.
+    pub fn new_with_default(delta: D) -> Self
+    where 
+        M: Default,
+    {
+        Self::new(
+            delta,
+            M::default(),
+        )
     }
 
     pub fn meta(&self) -> &M {
@@ -169,6 +182,7 @@ impl<D: Delta, M> Timeline<D, M> {
     /// The initial state should represent he state immediately
     /// before the lower bound is applied, and the resulting state
     /// should represent the state immediately after the upper bound is applied.
+    /// This runs in O(n). If this is not ideal, use [`StateCachedTimeline`] instead.
     pub fn build_state<T, R>(&self, state: &mut T, range: R)
     where
         T: Differentiable<D>,
@@ -180,6 +194,7 @@ impl<D: Delta, M> Timeline<D, M> {
     }
 
     /// Patches the range of commits using the output type's default value as the initial state.
+    /// This runs in O(n). If this is not ideal, use [`StateCachedTimeline`] instead.
     pub fn build_state_from_default<T, R>(&self, range: R) -> T
     where
         T: Differentiable<D> + Default,
@@ -291,6 +306,8 @@ where
 /// - The cache may have up to one "hanging" entry beyond what's strictly
 ///   required: a cached state may map to `timeline.len()` itself (the
 ///   current/latest state), even though no commit exists there yet.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateCachedTimeline<T, D, M = ()>
 where
     T: Differentiable<D> + Clone,
@@ -331,7 +348,8 @@ where
         }
     }
 
-    pub fn from_iter(
+    /// Build the timeline from the commits, interval, and an initial state.
+    pub fn from_commits(
         state_cache_interval: usize,
         initial_state: T,
         iter: impl IntoIterator<Item = Commit<D, M>>,
@@ -339,6 +357,18 @@ where
         let mut t = Self::new(state_cache_interval, initial_state);
         t.extend(iter);
         t
+    }
+
+    /// Use [`T::default`][Default::default] for the default state and
+    /// build the timeline from the commits and interval.
+    pub fn from_commits_with_default(
+        state_cache_interval: usize,
+        iter: impl IntoIterator<Item = Commit<D, M>>,
+    ) -> Self
+    where 
+        T: Default,
+    {
+        Self::from_commits(state_cache_interval, T::default(), iter)
     }
 
     /// Replaces the initial state and recomputes every cached state
@@ -472,6 +502,8 @@ where
             self.states.pop();
         }
     }
+
+    // TODO delta inversion
 }
 
 impl<T, D, M> Extend<Commit<D, M>> for StateCachedTimeline<T, D, M>
@@ -511,4 +543,9 @@ where
     }
 }
 
-// TODO test
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // TODO
+}
