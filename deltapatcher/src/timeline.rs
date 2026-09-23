@@ -575,7 +575,378 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::delta::ArithmeticDelta;
 
-    // TODO
+use super::*;
+
+    // --- Commit Tests ---
+
+    #[test]
+    fn test_commit_creation_and_deref() {
+        let commit = Commit::new(ArithmeticDelta(5i32), "metadata");
+        assert_eq!(commit.meta(), &"metadata");
+        // Deref to ArithmeticDelta<i32>
+        assert_eq!(commit.0, 5);
+
+        let commit_default_meta: Commit<ArithmeticDelta<i32>, String> =
+            Commit::new_with_default(ArithmeticDelta(10));
+        assert_eq!(commit_default_meta.meta(), "");
+        assert_eq!(commit_default_meta.0, 10);
+    }
+
+    // --- Timeline Tests ---
+
+    #[test]
+    fn test_timeline_basic_operations() {
+        let mut timeline = Timeline::new();
+        assert!(timeline.is_empty());
+        assert_eq!(timeline.len(), 0);
+
+        timeline.push(Commit::new(ArithmeticDelta(10i32), ()));
+        timeline.push(Commit::new(ArithmeticDelta(20i32), ()));
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[0].0, 10);
+        assert_eq!(timeline[1].0, 20);
+
+        let popped = timeline.pop().expect("Should pop a commit");
+        assert_eq!(popped.0, 20);
+        assert_eq!(timeline.len(), 1);
+
+        timeline.clear();
+        assert!(timeline.is_empty());
+    }
+
+    #[test]
+    fn test_timeline_truncate() {
+        let mut timeline: Timeline<ArithmeticDelta<i32>, ()> = vec![
+            Commit::new(ArithmeticDelta(1), ()),
+            Commit::new(ArithmeticDelta(2), ()),
+            Commit::new(ArithmeticDelta(3), ()),
+        ]
+        .into_iter()
+        .collect();
+
+        timeline.truncate(2);
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[1].0, 2);
+
+        timeline.truncate(10);
+        assert_eq!(timeline.len(), 2);
+    }
+
+    #[test]
+    fn test_timeline_pop_aggregate() {
+        let mut timeline: Timeline<ArithmeticDelta<i32>, ()> = vec![
+            Commit::new(ArithmeticDelta(1), ()),
+            Commit::new(ArithmeticDelta(2), ()),
+            Commit::new(ArithmeticDelta(3), ()),
+            Commit::new(ArithmeticDelta(4), ()),
+        ]
+        .into_iter()
+        .collect();
+
+        // Pop last 2 commits: 3 + 4 = 7
+        let agg = timeline.pop_aggregate(2);
+        assert_eq!(agg, Some(ArithmeticDelta(7)));
+        assert_eq!(timeline.len(), 2);
+
+        // Asking for more elements than timeline size returns None
+        assert_eq!(timeline.pop_aggregate(5), None);
+        assert_eq!(timeline.len(), 2);
+
+        // Popping 0 elements should return None
+        assert_eq!(timeline.pop_aggregate(0), None);
+        assert_eq!(timeline.len(), 2);
+
+        // Pop remaining elements
+        let agg_all = timeline.pop_aggregate(2);
+        assert_eq!(agg_all, Some(ArithmeticDelta(3)));
+        assert!(timeline.is_empty());
+    }
+
+    #[test]
+    fn test_timeline_get_aggregate() {
+        let timeline: Timeline<ArithmeticDelta<i32>, ()> = vec![
+            Commit::new(ArithmeticDelta(10), ()),
+            Commit::new(ArithmeticDelta(20), ()),
+            Commit::new(ArithmeticDelta(30), ()),
+            Commit::new(ArithmeticDelta(40), ()),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(timeline.get_aggregate(..), Some(ArithmeticDelta(100)));
+        assert_eq!(timeline.get_aggregate(1..3), Some(ArithmeticDelta(50)));
+        assert_eq!(timeline.get_aggregate(2..=3), Some(ArithmeticDelta(70)));
+
+        // Empty / Invalid Ranges
+        assert_eq!(timeline.get_aggregate(2..2), None);
+        assert_eq!(timeline.get_aggregate(3..1), None);
+        assert_eq!(timeline.get_aggregate(0..10), None);
+    }
+
+    #[test]
+    fn test_timeline_merge_commits() {
+        let mut timeline: Timeline<ArithmeticDelta<i32>, &'static str> = vec![
+            Commit::new(ArithmeticDelta(1), "a"),
+            Commit::new(ArithmeticDelta(2), "b"),
+            Commit::new(ArithmeticDelta(3), "c"),
+            Commit::new(ArithmeticDelta(4), "d"),
+        ]
+        .into_iter()
+        .collect();
+
+        // Merge index 1..3 (commits 2 and 3 -> aggregated to 5)
+        let merged_idx = timeline.merge_commits(1..3, "b+c");
+        assert_eq!(merged_idx, Some(1));
+        assert_eq!(timeline.len(), 3);
+
+        assert_eq!(timeline[0].0, 1);
+        assert_eq!(*timeline[0].meta(), "a");
+
+        assert_eq!(timeline[1].0, 5);
+        assert_eq!(*timeline[1].meta(), "b+c");
+
+        assert_eq!(timeline[2].0, 4);
+        assert_eq!(*timeline[2].meta(), "d");
+
+        // Empty range returns None
+        assert_eq!(timeline.merge_commits(2..2, "empty"), None);
+        // Start index out of bounds returns None
+        assert_eq!(timeline.merge_commits(10..12, "oob"), None);
+    }
+
+    #[test]
+    fn test_timeline_build_state() {
+        let timeline: Timeline<ArithmeticDelta<i32>, ()> = vec![
+            Commit::new(ArithmeticDelta(5), ()),
+            Commit::new(ArithmeticDelta(10), ()),
+            Commit::new(ArithmeticDelta(15), ()),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut state: i32 = 100;
+        timeline.build_state(&mut state, 0..2);
+        assert_eq!(state, 115);
+
+        let state_default: i32 = timeline.build_state_from_default(..);
+        assert_eq!(state_default, 30);
+    }
+
+    #[test]
+    fn test_timeline_conversions_and_iterators() {
+        // FromIterator for Delta (with unit metadata)
+        let t1: Timeline<ArithmeticDelta<i32>, ()> =
+            vec![ArithmeticDelta(1), ArithmeticDelta(2)]
+                .into_iter()
+                .collect();
+        assert_eq!(t1.len(), 2);
+
+        // FromIterator for Commit
+        let commits = vec![Commit::new(ArithmeticDelta(3), "meta")];
+        let mut t2: Timeline<ArithmeticDelta<i32>, &'static str> =
+            commits.into_iter().collect();
+        assert_eq!(t2.len(), 1);
+
+        // Extend
+        t2.extend(vec![Commit::new(ArithmeticDelta(4), "meta2")]);
+        assert_eq!(t2.len(), 2);
+
+        // Reference IntoIterator
+        let sum: i32 = (&t2).into_iter().map(|c| c.0).sum();
+        assert_eq!(sum, 7);
+
+        // Owned IntoIterator
+        let owned_sum: i32 = t2.into_iter().map(|c| c.0).sum();
+        assert_eq!(owned_sum, 7);
+    }
+
+    #[test]
+    fn test_timeline_delta_trait_impl() {
+        let mut t1: Timeline<ArithmeticDelta<i32>, ()> =
+            vec![ArithmeticDelta(1), ArithmeticDelta(2)]
+                .into_iter()
+                .collect();
+        let t2: Timeline<ArithmeticDelta<i32>, ()> =
+            vec![ArithmeticDelta(3), ArithmeticDelta(4)]
+                .into_iter()
+                .collect();
+
+        // aggregate by clone
+        t1.aggregate(&t2);
+        assert_eq!(t1.len(), 4);
+        assert_eq!(t1[2].0, 3);
+
+        // aggregate_owned
+        t1.aggregate_owned(vec![ArithmeticDelta(5)].into_iter().collect());
+        assert_eq!(t1.len(), 5);
+        assert_eq!(t1[4].0, 5);
+    }
+
+    // --- StateCachedTimeline Tests ---
+
+    #[test]
+    #[should_panic(expected = "state_cache_interval must be >= 1")]
+    fn test_cached_timeline_zero_interval_panics() {
+        StateCachedTimeline::<i32, ArithmeticDelta<i32>, ()>::new(0, 0);
+    }
+
+    #[test]
+    fn test_cached_timeline_queries() {
+        // Interval = 2
+        let mut ct = StateCachedTimeline::new(2, 0i32);
+
+        ct.push(Commit::new(ArithmeticDelta(10), ())); // index 0
+        ct.push(Commit::new(ArithmeticDelta(20), ())); // index 1
+        ct.push(Commit::new(ArithmeticDelta(30), ())); // index 2
+        ct.push(Commit::new(ArithmeticDelta(40), ())); // index 3
+
+        assert_eq!(ct.get_state_before(0), Some(0));
+        assert_eq!(ct.get_state_before(1), Some(10));
+        assert_eq!(ct.get_state_before(2), Some(30));
+        assert_eq!(ct.get_state_before(3), Some(60));
+        assert_eq!(ct.get_state_before(4), Some(100));
+        assert_eq!(ct.get_state_before(5), None);
+
+        assert_eq!(ct.get_state_after(0), Some(10));
+        assert_eq!(ct.get_state_after(1), Some(30));
+        assert_eq!(ct.get_state_after(2), Some(60));
+        assert_eq!(ct.get_state_after(3), Some(100));
+        assert_eq!(ct.get_state_after(4), None);
+
+        assert_eq!(ct.current_state(), 100);
+    }
+
+    #[test]
+    fn test_cached_timeline_get_nearest_state() {
+        let mut ct = StateCachedTimeline::new(3, 10i32);
+        for i in 1..=6 {
+            ct.push(Commit::new(ArithmeticDelta(i), ()));
+        }
+
+        // Cache positions created during push:
+        // index 0 (initial state = 10)
+        // index 3 (state = 10 + 1 + 2 + 3 = 16)
+
+        let (idx_0, state_0) = ct.get_nearest_state(2).unwrap();
+        assert_eq!(idx_0, 0);
+        assert_eq!(state_0, &10);
+
+        let (idx_3, state_3) = ct.get_nearest_state(4).unwrap();
+        assert_eq!(idx_3, 3);
+        assert_eq!(state_3, &16);
+
+        // Before pushing commit 6, nearest cache for index 6 is index 3
+        let (idx_6_before, state_6_before) = ct.get_nearest_state(6).unwrap();
+        assert_eq!(idx_6_before, 3);
+        assert_eq!(state_6_before, &16);
+
+        // Pushing 7th commit (index 6) caches the state before index 6
+        ct.push(Commit::new(ArithmeticDelta(7), ()));
+        let (idx_6, state_6) = ct.get_nearest_state(6).unwrap();
+        assert_eq!(idx_6, 6);
+        assert_eq!(state_6, &31);
+
+        assert_eq!(ct.get_nearest_state(8), None);
+    }
+
+    #[test]
+    fn test_cached_timeline_constructors() {
+        let timeline: Timeline<ArithmeticDelta<i32>, ()> = vec![
+            Commit::new(ArithmeticDelta(5), ()),
+            Commit::new(ArithmeticDelta(15), ()),
+            Commit::new(ArithmeticDelta(25), ()),
+        ]
+        .into_iter()
+        .collect();
+
+        // from_timeline
+        let ct1 = StateCachedTimeline::from_timeline(2, timeline, 100i32);
+        assert_eq!(ct1.current_state(), 145);
+        assert_eq!(ct1.get_state_before(2), Some(120));
+
+        // from_commits
+        let ct2 = StateCachedTimeline::from_commits(
+            1,
+            50i32,
+            vec![Commit::new(ArithmeticDelta(10), ()), Commit::new(ArithmeticDelta(20), ())],
+        );
+        assert_eq!(ct2.current_state(), 80);
+
+        // from_commits_with_default
+        let ct3 = StateCachedTimeline::<i32, ArithmeticDelta<i32>, ()>::from_commits_with_default(
+            2,
+            vec![Commit::new(ArithmeticDelta(7), ())],
+        );
+        assert_eq!(ct3.current_state(), 7);
+    }
+
+    #[test]
+    fn test_cached_timeline_set_initial_state() {
+        let mut ct = StateCachedTimeline::new(2, 0i32);
+        ct.push(Commit::new(ArithmeticDelta(10), ()));
+        ct.push(Commit::new(ArithmeticDelta(20), ()));
+        ct.push(Commit::new(ArithmeticDelta(30), ()));
+
+        assert_eq!(ct.current_state(), 60);
+
+        // Re-base with a new initial state
+        ct.set_initial_state(100);
+
+        assert_eq!(ct.get_state_before(0), Some(100));
+        assert_eq!(ct.get_state_before(1), Some(110));
+        assert_eq!(ct.get_state_before(2), Some(130));
+        assert_eq!(ct.current_state(), 160);
+    }
+
+    #[test]
+    fn test_cached_timeline_pop_truncate_clear() {
+        let mut ct = StateCachedTimeline::new(2, 0i32);
+        for _ in 0..5 {
+            ct.push(Commit::new(ArithmeticDelta(10), ()));
+        }
+
+        assert_eq!(ct.current_state(), 50);
+
+        let popped = ct.pop();
+        assert_eq!(popped.unwrap().0, 10);
+        assert_eq!(ct.len(), 4);
+        assert_eq!(ct.current_state(), 40);
+
+        ct.truncate(1);
+        assert_eq!(ct.len(), 1);
+        assert_eq!(ct.current_state(), 10);
+
+        ct.clear();
+        assert_eq!(ct.len(), 0);
+        assert_eq!(ct.current_state(), 0);
+    }
+
+    #[test]
+    fn test_cached_timeline_extend() {
+        let mut ct = StateCachedTimeline::new(2, 5i32);
+
+        ct.extend(vec![
+            Commit::new(ArithmeticDelta(10), ()),
+            Commit::new(ArithmeticDelta(20), ()),
+            Commit::new(ArithmeticDelta(30), ()),
+        ]);
+
+        assert_eq!(ct.len(), 3);
+        assert_eq!(ct.get_state_before(0), Some(5));
+        assert_eq!(ct.get_state_before(2), Some(35));
+        assert_eq!(ct.current_state(), 65);
+    }
+
+    #[test]
+    fn test_wrapping_arithmetic_overflow_behavior() {
+        let mut ct = StateCachedTimeline::new(1, 250u8);
+        ct.push(Commit::new(ArithmeticDelta(10u8), ()));
+
+        assert_eq!(ct.current_state(), 4u8);
+
+        let delta = 4u8.differentiate(&250u8);
+        assert_eq!(delta.0, 10u8);
+    }
 }

@@ -468,7 +468,7 @@ impl<T> SliceDeltaEntry<T> {
 }
 
 /// A delta defined by addition/subtraction.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ArithmeticDelta<T: WrappingArithmetic>(pub T);
 
