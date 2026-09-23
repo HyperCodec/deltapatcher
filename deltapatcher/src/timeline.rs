@@ -264,6 +264,36 @@ impl<'a, D: Delta, M> IntoIterator for &'a Timeline<D, M> {
     }
 }
 
+impl<D: Delta + Clone, M: Clone> Delta for Timeline<D, M> {
+    fn aggregate(&mut self, next: &Self) {
+        self.aggregate_owned(next.clone());   
+    }
+
+    fn aggregate_owned(&mut self, next: Self)
+    where
+        Self: Sized
+    {
+        self.commits.extend(next.commits);
+    }
+}
+
+impl<T, D> Differentiable<Timeline<D, ()>> for T
+where 
+    T: Differentiable<D>,
+    D: Delta + Clone,
+{
+    fn differentiate(&self, initial: &Self) -> Timeline<D, ()> {
+        let delta = self.differentiate(initial);
+        let mut t = Timeline::new();
+        t.push(Commit::new(delta, ()));
+        t
+    }
+
+    fn patch(&mut self, t: &Timeline<D, ()>) {
+        t.build_state(self, ..);
+    }
+}
+
 /// Replays `timeline` against `initial_state`, producing the cache-state
 /// vector for it. Shared between [`StateCachedTimeline::from_timeline`]
 /// and [`StateCachedTimeline::set_initial_state`], since "rebuild the
