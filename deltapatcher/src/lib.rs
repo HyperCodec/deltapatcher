@@ -3,3 +3,6 @@ pub mod timeline;
 pub mod util;
 
 pub use delta::{Delta, Differentiable};
+
+#[cfg(feature = "deku")]
+pub use deku;

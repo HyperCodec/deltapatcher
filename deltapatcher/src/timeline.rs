@@ -577,7 +577,7 @@ where
 mod tests {
     use crate::delta::ArithmeticDelta;
 
-use super::*;
+    use super::*;
 
     // --- Commit Tests ---
 
