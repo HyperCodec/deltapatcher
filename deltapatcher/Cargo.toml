@@ -12,4 +12,3 @@ serde = { version = "1.0.229", features = ["derive"], optional = true }
 [features]
 serde = ["dep:serde"]
 macros = ["dep:deltapatcher-macros"]
-deku = ["dep:deku"]
