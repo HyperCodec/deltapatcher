@@ -372,7 +372,7 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
     /// builds the result into a scratch buffer first, then copies back.
     ///
     /// Shrinking is allowed: elements past the new effective length are
-    /// left with stale trailing values, since a slice can't represent
+    /// left with stale trailing values, since a slice alone can't represent
     /// "shorter than its own length."
     fn patch(&mut self, delta: &SliceDelta<T>) {
         let mut buffer: Vec<T> = Vec::with_capacity(self.len());
