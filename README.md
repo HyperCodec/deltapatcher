@@ -145,7 +145,6 @@ just run-example video_stream
   - `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
 - **Compact / bitpacked serialization** — an opt-in binary format (behind a feature flag) that encodes deltas far more densely than `serde` + any text format can. Candidates include bitpacking index and length fields in `SliceDelta` entries and using varint encoding for arithmetic deltas, with the whole thing potentially exposed as a `deku`-backed implementation.
 - **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
-- **`#[derive(Differentiable)]` for enums** — the macro currently panics on enums; a variant-aware derive that emits a tagged delta enum would cover a large class of real-world state types.
 - **`#[derive(WrappingArithmetic)]`** — remove the boilerplate of implementing the trait by hand for newtype wrappers and simple structs.
 - **Async / streaming timeline** — a `StreamingTimeline` adapter that yields commits as a `Stream`, targeting networked applications that push state changes in real time.
 - **`no_std` support** — remove the hard dependency on `std` so the core traits and delta types can be used in embedded and WASM environments.

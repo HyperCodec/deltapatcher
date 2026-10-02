@@ -1,4 +1,6 @@
-use deltapatcher::{Differentiable, delta::{ArithmeticDelta, WrappingArithmetic}};
+use deltapatcher::{Differentiable, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
+
+// ── Struct example ────────────────────────────────────────────────────────────
 
 #[derive(Differentiable, Debug, Clone, Copy)]
 // This top-level attribute macro is completely optional.
@@ -39,7 +41,36 @@ impl WrappingArithmetic for IVec2 {
     }
 }
 
+// ── Enum example ──────────────────────────────────────────────────────────────
+
+/// A simple shape enum demonstrating all three variant kinds:
+/// named fields, unnamed (tuple) fields, and unit variants.
+///
+/// The derive macro generates a `ShapeDelta` enum with a matching variant for
+/// each source variant (carrying per-field deltas) and an extra `Replace`
+/// variant for transitions between different variants.
+#[derive(Differentiable, Debug, Clone, PartialEq)]
+#[deltapatcher(delta_derive(Debug))]
+#[allow(dead_code)]
+enum Shape {
+    /// Rectangle with named width/height fields.
+    Rect {
+        #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+        width: i32,
+        #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+        height: i32,
+    },
+    /// Circle with an unnamed radius field.
+    Circle(
+        #[deltapatcher(delta_ty = ArithmeticDelta<u32>)]
+        u32,
+    ),
+    /// A dimensionless point — no fields.
+    Point,
+}
+
 fn main() {
+    // ── Struct demo ───────────────────────────────────────────────────────────
     let v1 = IVec2 { x: 4, y: -5 };
     let v2 = IVec2 { x: -124, y: 46 };
 
@@ -58,5 +89,57 @@ fn main() {
     state.patch(&delta2);
     dbg!(&state);
 
-    println!("Run `cargo expand --bin macros --features macros` to see the generated code.");
+    // ── Enum demo — same variant ──────────────────────────────────────────────
+    println!("\n── Enum demo ────");
+
+    let rect_a = Shape::Rect { width: 10, height: 20 };
+    let rect_b = Shape::Rect { width: 30, height: 5  };
+
+    // Both are Rect: the generated delta is ShapeDelta::Rect { width: ..., height: ... }
+    let same_variant_delta = rect_b.diff(&rect_a);
+    dbg!(&same_variant_delta);
+
+    let mut s = rect_a.clone();
+    s.patch(&same_variant_delta);
+    assert_eq!(s, rect_b);
+    println!("Same-variant patch: {s:?} == {rect_b:?}");
+
+    // ── Enum demo — cross-variant (Replace) ───────────────────────────────────
+    let circle = Shape::Circle(99);
+
+    // Rect → Circle: variants differ, so the delta is ShapeDelta::Replace(Circle(99))
+    let replace_delta = circle.diff(&rect_b);
+    dbg!(&replace_delta);
+
+    let mut s = rect_b.clone();
+    s.patch(&replace_delta);
+    assert_eq!(s, circle);
+    println!("Cross-variant patch: {s:?} == {circle:?}");
+
+    // ── Enum demo — aggregate ─────────────────────────────────────────────────
+    // Two same-variant deltas collapse into one.
+    let rect_c = Shape::Rect { width: 3, height: 42 };
+
+    let mut d_ab = rect_b.diff(&rect_a);
+    let     d_bc = rect_c.diff(&rect_b);
+    d_ab.aggregate(&d_bc);
+
+    let mut s = rect_a.clone();
+    s.patch(&d_ab);
+    assert_eq!(s, rect_c);
+    println!("Aggregated same-variant patch: {s:?} == {rect_c:?}");
+
+    // A Replace followed by a same-variant delta collapses into a single Replace
+    // that already encodes the fully-updated final state.
+    let mut d_replace_then_same = circle.diff(&rect_c); // Replace(Circle(99))
+    let circle_b = Shape::Circle(7);
+    let d_circle = circle_b.diff(&circle);              // Circle(delta)
+    d_replace_then_same.aggregate(&d_circle);
+
+    let mut s = rect_c.clone();
+    s.patch(&d_replace_then_same);
+    assert_eq!(s, circle_b);
+    println!("Aggregated replace+same patch: {s:?} == {circle_b:?}");
+
+    println!("\nRun `cargo expand --bin macros --features macros` to see the generated code.");
 }

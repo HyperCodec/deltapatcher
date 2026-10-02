@@ -625,7 +625,7 @@ mod tests {
         }
     }
     
-    mod arithmetic {
+        mod arithmetic {
         use super::*;
 
         #[test]
@@ -636,6 +636,168 @@ mod tests {
             assert_roundtrip(u8::MAX, u8::MIN);
             // assert_roundtrip(2.34, 6.78);
             // assert_roundtrip(28930.345f64, 28930.345f64);
+        }
+    }
+
+        /// Tests for `#[derive(Differentiable)]` on enums.
+    #[cfg(feature = "macros")]
+    mod derive_enum {
+        use super::*;
+        use deltapatcher_macros::Differentiable;
+        // The macro emits `deltapatcher::delta::...` paths.  When the tests
+        // run inside the `deltapatcher` crate itself, we need the crate to
+        // be accessible under that name.
+        extern crate self as deltapatcher;
+
+        // ----------------------------------------------------------------
+        // Test types
+        // ----------------------------------------------------------------
+
+        /// An enum with every kind of variant (named fields, unnamed fields,
+        /// and unit) so that one set of tests covers all three code paths.
+        #[derive(Differentiable, Debug, Clone, PartialEq)]
+        enum Shape {
+            /// Named-field variant.
+            Rect {
+                #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+                width: i32,
+                #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+                height: i32,
+            },
+            /// Unnamed-field (tuple) variant.
+            Circle(
+                #[deltapatcher(delta_ty = ArithmeticDelta<u32>)]
+                u32,
+            ),
+            /// Unit variant.
+            Point,
+        }
+
+        // ----------------------------------------------------------------
+        // same-variant: diff + patch
+        // ----------------------------------------------------------------
+
+        #[test]
+        fn same_variant_named_roundtrip() {
+            assert_roundtrip(
+                Shape::Rect { width: 10, height: 20 },
+                Shape::Rect { width: 30, height: 5  },
+            );
+        }
+
+        #[test]
+        fn same_variant_unnamed_roundtrip() {
+            assert_roundtrip(Shape::Circle(4), Shape::Circle(100));
+        }
+
+        #[test]
+        fn same_variant_unit_roundtrip() {
+            assert_roundtrip(Shape::Point, Shape::Point);
+        }
+
+        // ----------------------------------------------------------------
+        // cross-variant: diff produces Replace, patch overwrites
+        // ----------------------------------------------------------------
+
+        #[test]
+        fn cross_variant_named_to_unnamed_roundtrip() {
+            assert_roundtrip(
+                Shape::Rect { width: 1, height: 2 },
+                Shape::Circle(99),
+            );
+        }
+
+        #[test]
+        fn cross_variant_unnamed_to_unit_roundtrip() {
+            assert_roundtrip(Shape::Circle(7), Shape::Point);
+        }
+
+        #[test]
+        fn cross_variant_unit_to_named_roundtrip() {
+            assert_roundtrip(
+                Shape::Point,
+                Shape::Rect { width: -3, height: 42 },
+            );
+        }
+
+        // ----------------------------------------------------------------
+        // aggregate: same variant on both sides
+        // ----------------------------------------------------------------
+
+        #[test]
+        fn aggregate_same_variant_matches_direct_diff() {
+            let a = Shape::Rect { width: 0,  height: 0  };
+            let b = Shape::Rect { width: 10, height: -5 };
+            let c = Shape::Rect { width: 3,  height: 20 };
+
+            let mut d_ab = b.diff(&a);
+            let     d_bc = c.diff(&b);
+            d_ab.aggregate(&d_bc);
+
+            let mut result = a.clone();
+            result.patch(&d_ab);
+            assert_eq!(result, c);
+        }
+
+        // ----------------------------------------------------------------
+        // aggregate: first delta is Replace (self already replaced)
+        // ----------------------------------------------------------------
+
+        /// A → (Replace B) then B → C should collapse to A → (Replace C).
+        #[test]
+        fn aggregate_replace_then_same_variant() {
+            let a = Shape::Circle(1);
+            let b = Shape::Rect { width: 10, height: 20 };
+            let c = Shape::Rect { width: 30, height: 5  };
+
+            // d1 is Replace(b) because the variants differ
+            let mut d1 = b.diff(&a);
+            // d2 is a same-variant named-field delta
+            let d2 = c.diff(&b);
+            d1.aggregate(&d2);
+
+            let mut result = a.clone();
+            result.patch(&d1);
+            assert_eq!(result, c);
+        }
+
+        // ----------------------------------------------------------------
+        // aggregate: second delta is Replace (next replaces everything)
+        // ----------------------------------------------------------------
+
+        /// A → B then (Replace C) should collapse to A → (Replace C).
+        #[test]
+        fn aggregate_same_variant_then_replace() {
+            let a = Shape::Rect { width: 0, height: 0 };
+            let b = Shape::Rect { width: 5, height: 5 };
+            let c = Shape::Circle(42);
+
+            let mut d1 = b.diff(&a);
+            let     d2 = c.diff(&b); // Replace(Circle(42))
+            d1.aggregate(&d2);
+
+            let mut result = a.clone();
+            result.patch(&d1);
+            assert_eq!(result, c);
+        }
+
+        // ----------------------------------------------------------------
+        // aggregate: both deltas are Replace
+        // ----------------------------------------------------------------
+
+        #[test]
+        fn aggregate_replace_then_replace() {
+            let a = Shape::Point;
+            let b = Shape::Circle(10);
+            let c = Shape::Rect { width: -1, height: -1 };
+
+            let mut d1 = b.diff(&a); // Replace(Circle(10))
+            let     d2 = c.diff(&b); // Replace(Rect { .. })
+            d1.aggregate(&d2);
+
+            let mut result = a.clone();
+            result.patch(&d1);
+            assert_eq!(result, c);
         }
     }
 }
