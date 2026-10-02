@@ -533,7 +533,37 @@ where
         }
     }
 
-    // TODO delta inversion
+    /// Computes the aggregate delta across a range of commits in `O(state_cached_interval)` time
+    /// instead of `O(N)` linear delta aggregation.
+    ///
+    /// It reconstructs the state before `start` and the state before `end`,
+    /// then calls [`differentiate`][Differentiable::differentiate] directly between them.
+    pub fn get_aggregate_via_diff(&self, range: impl RangeBounds<usize>) -> Option<D> {
+        let (start, end) = self.timeline.get_bounds(range)?;
+
+        let state_start = self.get_state_before(start)?;
+        let state_end = self.get_state_before(end)?;
+
+        Some(state_end.differentiate(&state_start))
+    }
+
+    /// Computes a direct differential delta between any two frame indices (`from` and `to`).
+    ///
+    /// This works bidirectionally:
+    /// - Forward (`from < to`): yields the aggregated forward delta.
+    /// - Backward (`from > to`): yields an inverted delta that transforms state `from` into state `to`.
+    ///
+    /// Running time is `O(state_cached_interval)` worst-case regardless of how far apart the frames are.
+    pub fn delta_between(&self, from: usize, to: usize) -> Option<D> {
+        if from > self.timeline.len() || to > self.timeline.len() {
+            return None;
+        }
+
+        let state_from = self.get_state_before(from)?;
+        let state_to = self.get_state_before(to)?;
+
+        Some(state_to.differentiate(&state_from))
+    }
 }
 
 impl<T, D, M> Extend<Commit<D, M>> for StateCachedTimeline<T, D, M>
@@ -948,5 +978,77 @@ mod tests {
 
         let delta = 4u8.differentiate(&250u8);
         assert_eq!(delta.0, 10u8);
+    }
+
+    #[test]
+    fn test_state_cached_timeline_get_aggregate_via_diff() {
+        // Initial state = 0, interval = 2
+        // Commits: +10, +20, +30, +40
+        // State 0 (initial) = 0
+        // State 1 = 10
+        // State 2 = 30
+        // State 3 = 60
+        // State 4 = 100
+        let commits = vec![
+            Commit::new(ArithmeticDelta(10), ()),
+            Commit::new(ArithmeticDelta(20), ()),
+            Commit::new(ArithmeticDelta(30), ()),
+            Commit::new(ArithmeticDelta(40), ()),
+        ];
+        let sct = StateCachedTimeline::from_commits(2, 0i32, commits);
+
+        // Full range (matches standard get_aggregate)
+        assert_eq!(sct.get_aggregate_via_diff(..), Some(ArithmeticDelta(100)));
+        assert_eq!(sct.get_aggregate_via_diff(..), sct.get_aggregate(..));
+
+        // Sub-range 1..3 (commits 1 & 2 -> 20 + 30 = 50)
+        assert_eq!(sct.get_aggregate_via_diff(1..3), Some(ArithmeticDelta(50)));
+        assert_eq!(sct.get_aggregate_via_diff(1..3), sct.get_aggregate(1..3));
+
+        // Inclusive range 2..=3 (commits 2 & 3 -> 30 + 40 = 70)
+        assert_eq!(sct.get_aggregate_via_diff(2..=3), Some(ArithmeticDelta(70)));
+        assert_eq!(sct.get_aggregate_via_diff(2..=3), sct.get_aggregate(2..=3));
+
+        // Empty / Invalid Ranges
+        assert_eq!(sct.get_aggregate_via_diff(2..2), None);
+        assert_eq!(sct.get_aggregate_via_diff(3..1), None);
+        assert_eq!(sct.get_aggregate_via_diff(0..10), None);
+    }
+
+    #[test]
+    fn test_state_cached_timeline_diff_between() {
+        // Initial state = 100, cache interval = 3
+        // Commit 0 (+5)  -> state 1 = 105
+        // Commit 1 (+15) -> state 2 = 120
+        // Commit 2 (+25) -> state 3 = 145
+        // Commit 3 (-10) -> state 4 = 135
+        let commits = vec![
+            Commit::new(ArithmeticDelta(5), ()),
+            Commit::new(ArithmeticDelta(15), ()),
+            Commit::new(ArithmeticDelta(25), ()),
+            Commit::new(ArithmeticDelta(-10), ()),
+        ];
+        let sct = StateCachedTimeline::from_commits(3, 100i32, commits);
+
+        // Forward diffs
+        assert_eq!(sct.delta_between(0, 4), Some(ArithmeticDelta(35)));  // 135 - 100 = 35
+        assert_eq!(sct.delta_between(1, 3), Some(ArithmeticDelta(40)));  // 145 - 105 = 40
+
+        // Backward diffs (Delta Inversion)
+        assert_eq!(sct.delta_between(4, 0), Some(ArithmeticDelta(-35))); // 100 - 135 = -35
+        assert_eq!(sct.delta_between(3, 1), Some(ArithmeticDelta(-40))); // 105 - 145 = -40
+
+        // Same position yields zero delta
+        assert_eq!(sct.delta_between(2, 2), Some(ArithmeticDelta(0)));
+
+        // Verify patching with inverted delta correctly restores an older state
+        let mut current_state = sct.get_state_before(4).unwrap(); // 135
+        let inverted_delta = sct.delta_between(4, 1).unwrap();     // -30
+        current_state.patch(&inverted_delta);
+        assert_eq!(current_state, sct.get_state_before(1).unwrap()); // 105
+
+        // Out of bounds bounds check
+        assert_eq!(sct.delta_between(0, 10), None);
+        assert_eq!(sct.delta_between(10, 0), None);
     }
 }

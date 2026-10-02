@@ -10,5 +10,6 @@ deltapatcher-macros = { workspace = true, optional = true }
 serde = { version = "1.0.229", features = ["derive"], optional = true }
 
 [features]
+default = []
 serde = ["dep:serde"]
 macros = ["dep:deltapatcher-macros"]
