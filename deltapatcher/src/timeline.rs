@@ -282,8 +282,8 @@ impl<D: Delta + Clone, M: Clone> Delta for Timeline<D, M> {
 //     T: Differentiable<D>,
 //     D: Delta + Clone,
 // {
-//     fn differentiate(&self, initial: &Self) -> Timeline<D, ()> {
-//         let delta = self.differentiate(initial);
+//     fn diff(&self, initial: &Self) -> Timeline<D, ()> {
+//         let delta = self.diff(initial);
 //         let mut t = Timeline::new();
 //         t.push(Commit::new(delta, ()));
 //         t
@@ -537,14 +537,14 @@ where
     /// instead of `O(N)` linear delta aggregation.
     ///
     /// It reconstructs the state before `start` and the state before `end`,
-    /// then calls [`differentiate`][Differentiable::differentiate] directly between them.
-    pub fn get_aggregate_via_diff(&self, range: impl RangeBounds<usize>) -> Option<D> {
+    /// then calls [`diff`][Differentiable::diff] directly between them.
+        pub fn get_aggregate_via_diff(&self, range: impl RangeBounds<usize>) -> Option<D> {
         let (start, end) = self.timeline.get_bounds(range)?;
 
         let state_start = self.get_state_before(start)?;
         let state_end = self.get_state_before(end)?;
 
-        Some(state_end.differentiate(&state_start))
+                Some(state_end.diff(&state_start))
     }
 
     /// Computes a direct differential delta between any two frame indices (`from` and `to`).
@@ -562,7 +562,7 @@ where
         let state_from = self.get_state_before(from)?;
         let state_to = self.get_state_before(to)?;
 
-        Some(state_to.differentiate(&state_from))
+        Some(state_to.diff(&state_from))
     }
 }
 
@@ -976,7 +976,7 @@ mod tests {
 
         assert_eq!(ct.current_state(), 4u8);
 
-        let delta = 4u8.differentiate(&250u8);
+        let delta = 4u8.diff(&250u8);
         assert_eq!(delta.0, 10u8);
     }
 
@@ -999,13 +999,13 @@ mod tests {
 
         // Full range (matches standard get_aggregate)
         assert_eq!(sct.get_aggregate_via_diff(..), Some(ArithmeticDelta(100)));
-        assert_eq!(sct.get_aggregate_via_diff(..), sct.get_aggregate(..));
+                assert_eq!(sct.get_aggregate_via_diff(..), sct.get_aggregate(..));
 
         // Sub-range 1..3 (commits 1 & 2 -> 20 + 30 = 50)
         assert_eq!(sct.get_aggregate_via_diff(1..3), Some(ArithmeticDelta(50)));
         assert_eq!(sct.get_aggregate_via_diff(1..3), sct.get_aggregate(1..3));
 
-        // Inclusive range 2..=3 (commits 2 & 3 -> 30 + 40 = 70)
+        // Inclusive range 2..=3 (commits 2 & 3 -> 30 + 40 = 70)        
         assert_eq!(sct.get_aggregate_via_diff(2..=3), Some(ArithmeticDelta(70)));
         assert_eq!(sct.get_aggregate_via_diff(2..=3), sct.get_aggregate(2..=3));
 

@@ -5,7 +5,7 @@ pub use deltapatcher_macros::Differentiable;
 
 pub trait Differentiable<D: Delta> {
     /// Get the delta between the final state (self) and initial.
-    fn differentiate(&self, initial: &Self) -> D;
+    fn diff(&self, initial: &Self) -> D;
 
     /// Apply a given delta's changes onto self.
     fn patch(&mut self, delta: &D);
@@ -33,7 +33,7 @@ pub trait Delta {
 
 /// A delta which represents item changes in a vector or slice
 // TODO create a variant of [`SliceDelta`] for types like structs which may contain
-// large enough items to differentiate rather than cloning.
+// large enough items to diff rather than cloning.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDelta<T> {
@@ -356,7 +356,7 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
         }
     }
 
-    fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
+        fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
@@ -393,14 +393,14 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
         self[..buffer.len()].clone_from_slice(&buffer);
     }
 
-    fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
+        fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
 
 impl<T: Clone + PartialEq, const N: usize> Differentiable<SliceDelta<T>> for [T; N] {
-    fn differentiate(&self, initial: &Self) -> SliceDelta<T> {
-        <[T]>::differentiate(self, initial)
+    fn diff(&self, initial: &Self) -> SliceDelta<T> {
+        <[T]>::diff(self, initial)
     }
 
     fn patch(&mut self, delta: &SliceDelta<T>) {
@@ -517,7 +517,7 @@ impl_wrapping_arith! {
 
 impl<T: WrappingArithmetic> Differentiable<ArithmeticDelta<Self>> for T
 {
-    fn differentiate(&self, initial: &Self) -> ArithmeticDelta<Self> {
+    fn diff(&self, initial: &Self) -> ArithmeticDelta<Self> {
         ArithmeticDelta(self.wrapping_sub(*initial))
     }
 
@@ -537,7 +537,7 @@ mod tests {
         T: Differentiable<D> + Clone + PartialEq + std::fmt::Debug,
         D: Delta,
     {
-        let delta = final_.differentiate(&initial);
+        let delta = final_.diff(&initial);
         let mut applied = initial.clone();
         applied.patch(&delta);
         assert_eq!(applied, final_);
@@ -547,8 +547,8 @@ mod tests {
         use super::*;
 
         #[test]
-        fn differentiate_and_apply() {
-            assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
+        fn diff_and_apply() {
+                    assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
             assert_roundtrip(vec![1, 2, 3], vec![]);
             assert_roundtrip(vec![], vec![1, 2, 3]);
             assert_roundtrip(vec![1, 2, 3], vec![1, 2, 3]);
@@ -560,8 +560,8 @@ mod tests {
             let b = vec![1, 9, 3, 4, 10, 5];
             let c = vec![9, 3, 11, 4, 10];
 
-            let mut d1 = b.differentiate(&a);
-            let d2 = c.differentiate(&b);
+                        let mut d1 = b.diff(&a);
+            let d2 = c.diff(&b);
             d1.aggregate(&d2);
 
             let mut applied = a.clone();
@@ -583,9 +583,9 @@ mod tests {
 
         #[test]
         fn slice_patch_same_length() {
-            let initial = [1, 2, 3, 4];
+                        let initial = [1, 2, 3, 4];
             let final_ = vec![1, 5, 3, 6];
-            let delta = final_.differentiate(&initial.to_vec());
+            let delta = final_.diff(&initial.to_vec());
 
             let mut buf = initial;
             buf.patch(&delta);
@@ -595,8 +595,8 @@ mod tests {
         #[test]
         fn slice_patch_shrink_ok() {
             let initial = [1, 2, 3, 4, 5];
-            let final_ = vec![1, 3, 5];
-            let delta = final_.differentiate(&initial.to_vec());
+                        let final_ = vec![1, 3, 5];
+            let delta = final_.diff(&initial.to_vec());
 
             let mut buf = initial;
             buf.patch(&delta);
@@ -607,8 +607,8 @@ mod tests {
         #[should_panic(expected = "increase the length")]
         fn slice_patch_growth_panics() {
             let initial = [1, 2, 3];
-            let final_ = vec![1, 2, 3, 4];
-            let delta = final_.differentiate(&initial.to_vec());
+                        let final_ = vec![1, 2, 3, 4];
+            let delta = final_.diff(&initial.to_vec());
 
             let mut buf = initial;
             buf.patch(&delta);
@@ -617,8 +617,8 @@ mod tests {
         #[test]
         fn slice_patch_permutation_no_extra_space() {
             let initial: [u8; 10] = [4, 5, 6, 7, 8, 9, 10, 1, 2, 3];
-            let final_ = vec![8, 1, 5, 2, 3, 6, 7, 9, 10, 4];
-            let delta = final_.differentiate(&initial.to_vec());
+                        let final_ = vec![8, 1, 5, 2, 3, 6, 7, 9, 10, 4];
+            let delta = final_.diff(&initial.to_vec());
             let mut buf = initial;
             buf.patch(&delta); // previously panicked with the compaction version
             assert_eq!(buf, [8, 1, 5, 2, 3, 6, 7, 9, 10, 4]);
@@ -629,8 +629,8 @@ mod tests {
         use super::*;
 
         #[test]
-        fn differentiate_and_apply() {
-            assert_roundtrip(5u32, 10u32);
+        fn diff_and_apply() {
+                    assert_roundtrip(5u32, 10u32);
             assert_roundtrip(-1i32, i32::MAX);
             assert_roundtrip(i32::MIN, i32::MAX);
             assert_roundtrip(u8::MAX, u8::MIN);

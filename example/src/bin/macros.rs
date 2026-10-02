@@ -44,10 +44,10 @@ fn main() {
     let v2 = IVec2 { x: -124, y: 46 };
 
     // use our generated delta type
-    let delta1: VecDelta = v2.differentiate(&v1);
+    let delta1: VecDelta = v2.diff(&v1);
 
     // use the delta type available through WrappingArithmetic
-    let delta2: ArithmeticDelta<IVec2> = v2.differentiate(&v1);
+    let delta2: ArithmeticDelta<IVec2> = v2.diff(&v1);
 
     dbg!(&delta1, &delta2);
 

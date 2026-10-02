@@ -32,7 +32,7 @@ where
     /// Pop the current changes into a delta.
     /// This empties the changes in the bucket.
     pub fn pop(&mut self) -> D {
-        let delta = self.new.differentiate(&self.old);
+        let delta = self.new.diff(&self.old);
         self.old = self.new.clone();
         delta
     }

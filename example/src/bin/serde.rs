@@ -4,7 +4,7 @@ fn main() {
     // --- Serialize and deserialize a SliceDelta ---
     let initial = vec![1u32, 2, 3, 4, 5];
     let updated = vec![1u32, 9, 3, 10, 5];
-    let slice_delta = updated.differentiate(&initial);
+    let slice_delta = updated.diff(&initial);
 
     let serialized = serde_json::to_string_pretty(&slice_delta).unwrap();
     println!("=== SliceDelta (JSON) ===");
@@ -22,7 +22,7 @@ fn main() {
     // --- Serialize and deserialize an ArithmeticDelta ---
     let a: i32 = 42;
     let b: i32 = -17;
-    let arith_delta: ArithmeticDelta<i32> = b.differentiate(&a);
+    let arith_delta: ArithmeticDelta<i32> = b.diff(&a);
 
     let serialized = serde_json::to_string(&arith_delta).unwrap();
     println!("=== ArithmeticDelta (JSON) ===");
@@ -39,7 +39,7 @@ fn main() {
     let timeline: Timeline<ArithmeticDelta<i32>> = states
         .windows(2)
         .map(|w| {
-            let delta: ArithmeticDelta<i32> = w[1].differentiate(&w[0]);
+            let delta: ArithmeticDelta<i32> = w[1].diff(&w[0]);
             Commit::new(delta, ())
         })
         .collect();

@@ -6,7 +6,7 @@ fn main() {
     let end = vec!["a", "c", "d", "f"];
 
     // we removed the items at index 1 and 4
-    let delta = end.differentiate(&start);
+    let delta = end.diff(&start);
     dbg!(&delta);
 
     // remove items at index 1 and 4 from a different vec
@@ -19,11 +19,11 @@ fn main() {
     let rand_a = (0..rng.random_range(10..=50)).map(|_| rng.random_range(0..10)).collect::<Vec<i32>>();
     let rand_b = (0..rng.random_range(10..=50)).map(|_| rng.random_range(0..10)).collect::<Vec<i32>>();
 
-    let a_to_b = rand_b.differentiate(&rand_a);
+    let a_to_b = rand_b.diff(&rand_a);
     dbg!(&rand_a, &rand_b, &a_to_b);
 
     let rand_c = (0..rng.random_range(10..=50)).map(|_| rng.random_range(0..10)).collect::<Vec<i32>>();
-    let b_to_c = rand_c.differentiate(&rand_b);
+    let b_to_c = rand_c.diff(&rand_b);
     dbg!(&rand_c, &b_to_c);
 
     // aggregate(A -> B, B -> C) = A -> C.

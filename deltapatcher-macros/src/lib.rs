@@ -88,9 +88,9 @@ fn differentiable_struct(vis: syn::Visibility, ident: syn::Ident, s: syn::DataSt
                 }
 
                 impl deltapatcher::delta::Differentiable<#delta_name> for #ident {
-                    fn differentiate(&self, initial: &Self) -> #delta_name {
+                    fn diff(&self, initial: &Self) -> #delta_name {
                         #delta_name {
-                            #(#field_name: <#field_type as deltapatcher::delta::Differentiable<#delta_field_type>>::differentiate(&self.#field_name, &initial.#field_name)),*
+                            #(#field_name: <#field_type as deltapatcher::delta::Differentiable<#delta_field_type>>::diff(&self.#field_name, &initial.#field_name)),*
                         }
                     }
                     fn patch(&mut self, delta: &#delta_name) {
@@ -120,8 +120,8 @@ fn differentiable_struct(vis: syn::Visibility, ident: syn::Ident, s: syn::DataSt
                 }
 
                 impl deltapatcher::delta::Differentiable<#delta_name> for #ident {
-                    fn differentiate(&self, initial: &Self) -> #delta_name {
-                        #delta_name (#(<#field_type as deltapatcher::delta::Differentiable<#delta_field_type>>::differentiate(&self.#field_idx, &initial.#field_idx)),*)
+                    fn diff(&self, initial: &Self) -> #delta_name {
+                        #delta_name (#(<#field_type as deltapatcher::delta::Differentiable<#delta_field_type>>::diff(&self.#field_idx, &initial.#field_idx)),*)
                     }
                     fn patch(&mut self, delta: &#delta_name) {
                         #(<#field_type as deltapatcher::delta::Differentiable<#delta_field_type>>::patch(&mut self.#field_idx, &delta.#field_idx);)*
@@ -143,7 +143,7 @@ fn differentiable_struct(vis: syn::Visibility, ident: syn::Ident, s: syn::DataSt
                 }
 
                 impl deltapatcher::delta::Differentiable<#delta_name> for #ident {
-                    fn differentiate(&self, _initial: &Self) -> #delta_name { #delta_name }
+                    fn diff(&self, _initial: &Self) -> #delta_name { #delta_name }
                     fn patch(&mut self, _delta: &#delta_name) {}
                 }
             }

@@ -45,7 +45,7 @@ impl From<RawVideo> for VideoServer {
         let initial_frame = video[0];
         let commits = video
             .windows(2)
-            .map(|w| Commit::new_with_default(w[1].differentiate(&w[0])));
+            .map(|w| Commit::new_with_default(w[1].diff(&w[0])));
 
         Self {
             timeline: StateCachedTimeline::from_commits(3, initial_frame, commits),

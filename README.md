@@ -29,7 +29,7 @@ let start = vec![1, 2, 3, 4, 5];
 let end   = vec![1, 9, 3, 4, 10, 5];
 
 // Compute the delta from `start` to `end`
-let delta = end.differentiate(&start);
+let delta = end.diff(&start);
 
 // Apply it to a different starting state
 let mut other = start.clone();
@@ -42,8 +42,8 @@ assert_eq!(other, end);
 Deltas can be composed together with `aggregate` / `aggregate_owned`. An aggregated delta `A → C` can reproduce the final state without ever materializing the intermediate state `B`:
 
 ```rust
-let a_to_b = b.differentiate(&a);
-let b_to_c = c.differentiate(&b);
+let a_to_b = b.diff(&a);
+let b_to_c = c.diff(&b);
 
 let mut a_to_c = a_to_b;
 a_to_c.aggregate_owned(b_to_c);
@@ -106,7 +106,7 @@ Full API details on [docs.rs](https://docs.rs/deltapatcher).
 let server_timeline = StateCachedTimeline::from_commits(
     /*interval=*/ 4,
     initial_frame,
-    raw_frames.windows(2).map(|w| Commit::new_with_default(w[1].differentiate(&w[0]))),
+    raw_frames.windows(2).map(|w| Commit::new_with_default(w[1].diff(&w[0]))),
 );
 
 // Client: seek forward
@@ -151,7 +151,7 @@ just run-all-examples
   - `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
   - `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
 - **Compact / bitpacked serialization** — an opt-in binary format (behind a feature flag) that encodes deltas far more densely than `serde` + any text format can. Candidates include bitpacking index and length fields in `SliceDelta` entries and using varint encoding for arithmetic deltas, with the whole thing potentially exposed as a `deku`-backed implementation.
-- **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `differentiate`.
+- **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
 - **`#[derive(Differentiable)]` for enums** — the macro currently panics on enums; a variant-aware derive that emits a tagged delta enum would cover a large class of real-world state types.
 - **`#[derive(WrappingArithmetic)]`** — remove the boilerplate of implementing the trait by hand for newtype wrappers and simple structs.
 - **Async / streaming timeline** — a `StreamingTimeline` adapter that yields commits as a `Stream`, targeting networked applications that push state changes in real time.
