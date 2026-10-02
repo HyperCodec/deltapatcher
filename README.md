@@ -77,7 +77,7 @@ use deltapatcher::{Differentiable, delta::ArithmeticDelta};
 
 #[derive(Differentiable, Debug, Clone, Copy)]
 #[deltapatcher(
-    delta_name   = PositionDelta,   // optional: override the generated type name
+    delta_name = PosDelta,          // optional: override the generated type name
     delta_derive(Debug, Clone),     // optional: derives to add to the generated type
 )]
 struct Position {
@@ -136,18 +136,11 @@ just run-example macros
 just run-example video_stream
 ```
 
-Or run all of them in one shot:
-
-```shell
-just run-all-examples
-```
-
 ## Roadmap
 
 - **More built-in delta types**
-  - `HashMapDelta` / `BTreeMapDelta` — key-level insert/remove/update entries
+  - `MapDelta` — key-level insert/remove/update entries
   - `SetDelta` — insertion and removal sets for `HashSet` / `BTreeSet`
-  - `OptionDelta` — tracks transitions between `None` and `Some(T)`
   - `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
   - `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
 - **Compact / bitpacked serialization** — an opt-in binary format (behind a feature flag) that encodes deltas far more densely than `serde` + any text format can. Candidates include bitpacking index and length fields in `SliceDelta` entries and using varint encoding for arithmetic deltas, with the whole thing potentially exposed as a `deku`-backed implementation.

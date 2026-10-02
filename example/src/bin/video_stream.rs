@@ -114,5 +114,5 @@ fn main() {
 
     println!("\n=== Fast Aggregation Comparison ===");
     let range_diff = server.diff_across_many_fast(1..=4).unwrap();
-    println!("Direct O(interval) range diff (1..=4): {:?}", range_diff);
+    println!("Direct O(interval) range diff (1..=4): {:#?}", range_diff);
 }
