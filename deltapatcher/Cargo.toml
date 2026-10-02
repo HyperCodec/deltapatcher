@@ -5,7 +5,6 @@ edition.workspace = true
 authors.workspace = true
 
 [dependencies]
-deku = { version = "0.20.3", optional = true }
 deltapatcher-macros = { workspace = true, optional = true }
 serde = { version = "1.0.229", features = ["derive"], optional = true }
 
