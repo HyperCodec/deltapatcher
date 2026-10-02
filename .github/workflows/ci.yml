@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Disable incremental compilation in CI — it inflates the cache for little
+  # benefit when each run starts from a reasonably warm Cargo registry.
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ── Tests ────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable ≥ 1.85 for edition 2024)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests (all workspace members, all features)
+        run: cargo test --workspace --all-features
+
+  # ── Examples ─────────────────────────────────────────────────────────────
+  examples:
+    name: Run all examples
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable ≥ 1.85 for edition 2024)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Run all examples
+        run: just run-all-examples
