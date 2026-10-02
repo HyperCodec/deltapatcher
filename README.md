@@ -87,9 +87,25 @@ struct Position {
     #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
     y: i32,
 }
+
+#[derive(Differentiable, Debug, Clone)]
+enum State {
+    A {
+        #[deltapatcher(delta_ty = ArithmeticDelta<u32>)]
+        foo: u32,
+
+        #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+        bar: i32,
+    },
+    B(
+        #[deltapatcher(delta_ty = SliceDelta<u8>)]
+        Vec<u8>
+    ),
+    C,
+}
 ```
 
-Run `cargo expand` to inspect the generated code. Enum and union support is not yet implemented.
+Run `cargo expand` to inspect the generated code.
 
 ## Timelines
 
