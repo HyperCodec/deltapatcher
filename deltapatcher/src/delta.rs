@@ -3,24 +3,254 @@ use std::collections::{BTreeMap, VecDeque};
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros::Differentiable;
 
+/// A type that can compute and absorb typed deltas relative to another
+/// instance of itself.
+///
+/// `D` is the *delta type* — the value that encodes "what changed". It must
+/// implement [`Delta`], which gives it the ability to be composed (aggregated)
+/// with other deltas of the same kind.
+///
+/// # Contract
+///
+/// Implementations must satisfy the **round-trip law**: patching the initial
+/// state with the delta produced by diffing against that initial state must
+/// reproduce the final state exactly.
+///
+/// ```rust,ignore
+/// let delta = final_state.diff(&initial_state);
+/// initial_state.patch(&delta);
+/// assert_eq!(initial_state, final_state);
+/// ```
+///
+/// # Implementing `Differentiable`
+///
+/// You can implement the trait manually for any type, or (with the `macros`
+/// feature enabled) derive it automatically for structs and enums using
+/// `#[derive(Differentiable)]`.
+///
+/// ## Manual implementation
+///
+/// ```rust
+/// use deltapatcher::delta::{Delta, Differentiable, ArithmeticDelta};
+///
+/// /// A simple 2-D point type.
+/// #[derive(Clone, Copy, Debug, PartialEq)]
+/// struct Point { x: i32, y: i32 }
+///
+/// /// The corresponding delta: one arithmetic delta per field.
+/// #[derive(Clone, Copy)]
+/// struct PointDelta { dx: ArithmeticDelta<i32>, dy: ArithmeticDelta<i32> }
+///
+/// impl Delta for PointDelta {
+///     fn aggregate(&mut self, next: &Self) {
+///         self.dx.aggregate(&next.dx);
+///         self.dy.aggregate(&next.dy);
+///     }
+/// }
+///
+/// impl Differentiable<PointDelta> for Point {
+///     fn diff(&self, initial: &Self) -> PointDelta {
+///         PointDelta {
+///             dx: self.x.diff(&initial.x),
+///             dy: self.y.diff(&initial.y),
+///         }
+///     }
+///
+///     fn patch(&mut self, delta: &PointDelta) {
+///         self.x.patch(&delta.dx);
+///         self.y.patch(&delta.dy);
+///     }
+/// }
+///
+/// let a = Point { x: 1, y: 2 };
+/// let b = Point { x: 4, y: 0 };
+///
+/// let delta = b.diff(&a);
+/// let mut result = a;
+/// result.patch(&delta);
+/// assert_eq!(result, b);
+/// ```
+///
+/// ## Derive macro (requires the `macros` feature)
+///
+/// ```rust,ignore
+/// use deltapatcher::{Differentiable, delta::ArithmeticDelta};
+///
+/// #[derive(Differentiable, Clone)]
+/// struct Point {
+///     #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+///     x: i32,
+///     #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+///     y: i32,
+/// }
+/// ```
+///
+/// The macro generates the delta struct, its [`Delta`] impl, and the
+/// `Differentiable` impl automatically. See the `deltapatcher-macros` docs
+/// for full attribute reference.
+///
+/// # Built-in implementations
+///
+/// | Type | Delta | Notes |
+/// |------|-------|-------|
+/// | `Vec<T>`, `[T]`, `[T; N]` | [`SliceDelta<T>`] | LCS-based diff |
+/// | All primitive integer types | [`ArithmeticDelta<T>`] | Wrapping arithmetic |
+///
+/// # See also
+///
+/// - [`Delta`] — the trait implemented by the delta value itself.
+/// - [`SliceDelta`] — built-in delta for slices and vectors.
+/// - [`ArithmeticDelta`] — built-in delta for integer primitives.
 pub trait Differentiable<D: Delta> {
-    /// Get the delta between the final state (self) and initial.
+    /// Compute the delta between `self` (the *final* state) and `initial`.
+    ///
+    /// The returned delta, when passed to [`patch`][Differentiable::patch] on
+    /// a copy of `initial`, must reproduce `self` exactly (the round-trip
+    /// law).
+    ///
+    /// # Arguments
+    ///
+    /// * `initial` — the baseline state to diff against.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use deltapatcher::delta::Differentiable;
+    ///
+    /// let before = vec![1u32, 2, 3, 4];
+    /// let after  = vec![1u32, 9, 3, 4, 5];
+    ///
+    /// let delta = after.diff(&before);
+    ///
+    /// let mut result = before.clone();
+    /// result.patch(&delta);
+    /// assert_eq!(result, after);
+    /// ```
     fn diff(&self, initial: &Self) -> D;
 
-    /// Apply a given delta's changes onto self.
+    /// Apply `delta` to `self` in place, advancing it from its current state
+    /// to the state that was used to produce the delta.
+    ///
+    /// # Arguments
+    ///
+    /// * `delta` — a delta previously produced by [`diff`][Differentiable::diff].
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use deltapatcher::delta::Differentiable;
+    ///
+    /// let before = vec![1u32, 2, 3];
+    /// let after  = vec![1u32, 2, 3, 4, 5];
+    ///
+    /// let delta = after.diff(&before);
+    ///
+    /// let mut state = before.clone();
+    /// state.patch(&delta);
+    /// assert_eq!(state, after);
+    /// ```
     fn patch(&mut self, delta: &D);
 }
 
-/// An abstract trait representing the change in two states.
-/// These should be internally expressed against the state
-/// from immediately before they are applied.
+/// A value that encodes the change between two states and can be composed
+/// with other deltas of the same type.
+///
+/// A delta is always expressed relative to the state *immediately before* it
+/// is applied. Composing two deltas with [`aggregate`][Delta::aggregate]
+/// produces a single delta that skips the intermediate state entirely —
+/// useful for compressing a sequence of changes before sending them over the
+/// network or storing them in a timeline.
+///
+/// # Contract
+///
+/// Aggregation must be **associative**: aggregating `(A→B)` with `(B→C)` and
+/// then with `(C→D)` must produce the same result as aggregating `(A→B)` with
+/// the pre-aggregated `(B→D)`.
+///
+/// # Implementing `Delta`
+///
+/// You typically don't implement `Delta` in isolation — it is paired with a
+/// [`Differentiable`] impl on the state type. The only required method is
+/// [`aggregate`][Delta::aggregate]; [`aggregate_owned`][Delta::aggregate_owned]
+/// has a default implementation that simply borrows its argument, but you
+/// should override it whenever moving the data is cheaper than cloning.
+///
+/// ```rust
+/// use deltapatcher::delta::Delta;
+///
+/// /// A delta for a simple counter: just the signed difference.
+/// #[derive(Clone, Copy)]
+/// struct CounterDelta(i64);
+///
+/// impl Delta for CounterDelta {
+///     fn aggregate(&mut self, next: &Self) {
+///         self.0 += next.0;
+///     }
+/// }
+/// ```
+///
+/// # Example: composing deltas to skip an intermediate state
+///
+/// ```rust
+/// use deltapatcher::delta::{Delta, Differentiable};
+///
+/// let a = vec![1i32, 2, 3];
+/// let b = vec![1i32, 9, 3];     // A → B
+/// let c = vec![1i32, 9, 3, 4]; // B → C
+///
+/// let mut a_to_b = b.diff(&a);
+/// let     b_to_c = c.diff(&b);
+///
+/// // Compose into a single A → C delta — `b` is never needed again.
+/// a_to_b.aggregate_owned(b_to_c);
+///
+/// let mut result = a.clone();
+/// result.patch(&a_to_b);
+/// assert_eq!(result, c);
+/// ```
+///
+/// # See also
+///
+/// - [`Differentiable`] — the trait for types that *produce* and *consume* deltas.
+/// - [`SliceDelta`] — built-in delta for [`Vec<T>`], slices, and arrays.
+/// - [`ArithmeticDelta`] — built-in delta for integer primitives.
 pub trait Delta {
-    /// Layer another delta on top of the current one.
+    /// Compose `next` on top of `self` so that applying the result to the
+    /// state *before* `self` transitions it all the way to the state *after*
+    /// `next`, without materializing the intermediate state.
+    ///
+    /// After this call `self` represents the aggregated `A → C` delta, where
+    /// `self` was originally `A → B` and `next` is `B → C`.
+    ///
+    /// Prefer [`aggregate_owned`][Delta::aggregate_owned] in hot paths where
+    /// you already own `next` and the implementation can avoid a clone.
     fn aggregate(&mut self, next: &Self);
 
-    /// Layer another delta on top of the current one, but take
-    /// ownership of the argument. This should be a more optimized
-    /// hot path than [`aggregate`][Delta::aggregate] due to less cloning.
+    /// Compose `next` on top of `self` by value.
+    ///
+    /// This is the preferred hot-path alternative to
+    /// [`aggregate`][Delta::aggregate] when the caller already owns `next`,
+    /// because implementations can move its internal data rather than cloning
+    /// it. The default implementation simply delegates to `aggregate`, so
+    /// override this whenever moving is cheaper.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use deltapatcher::delta::{Delta, Differentiable};
+    ///
+    /// let a = vec![1u8, 2, 3];
+    /// let b = vec![1u8, 5, 3];
+    /// let c = vec![1u8, 5, 7];
+    ///
+    /// let mut d1 = b.diff(&a);
+    /// let     d2 = c.diff(&b); // owned — no extra clone needed
+    /// d1.aggregate_owned(d2);
+    ///
+    /// let mut result = a.clone();
+    /// result.patch(&d1);
+    /// assert_eq!(result, c);
+    /// ```
     fn aggregate_owned(&mut self, next: Self)
     where
         Self: Sized
