@@ -15,7 +15,7 @@ Built-in implementations are provided for `Vec<T>`, slices `[T]`, fixed-size arr
 
 | Feature | Description |
 |---|---|
-| `macros` | Enables the `#[derive(Differentiable)]` proc-macro for auto-generating delta types for structs |
+| `macros` | Enables the `#[derive(Differentiable)]` proc-macro to auto-generate delta types for structs/enums composed from differentiables |
 | `serde` | Enables `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
 ## Core Concepts

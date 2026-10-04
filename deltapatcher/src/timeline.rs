@@ -538,13 +538,16 @@ where
     ///
     /// It reconstructs the state before `start` and the state before `end`,
     /// then calls [`diff`][Differentiable::diff] directly between them.
-        pub fn get_aggregate_via_diff(&self, range: impl RangeBounds<usize>) -> Option<D> {
+    /// 
+    /// This is almost always preferable to using regular [`get_aggregate`][Timeline::get_aggregate],
+    /// except for when the cost of diffing two states completely eclipses the cost of aggregating `N` deltas.
+    pub fn get_aggregate_diffed(&self, range: impl RangeBounds<usize>) -> Option<D> {
         let (start, end) = self.timeline.get_bounds(range)?;
 
         let state_start = self.get_state_before(start)?;
         let state_end = self.get_state_before(end)?;
 
-                Some(state_end.diff(&state_start))
+        Some(state_end.diff(&state_start))
     }
 
     /// Computes a direct differential delta between any two frame indices (`from` and `to`).
@@ -981,7 +984,7 @@ mod tests {
     }
 
     #[test]
-    fn test_state_cached_timeline_get_aggregate_via_diff() {
+    fn test_state_cached_timeline_get_aggregate_diffed() {
         // Initial state = 0, interval = 2
         // Commits: +10, +20, +30, +40
         // State 0 (initial) = 0
@@ -998,21 +1001,21 @@ mod tests {
         let sct = StateCachedTimeline::from_commits(2, 0i32, commits);
 
         // Full range (matches standard get_aggregate)
-        assert_eq!(sct.get_aggregate_via_diff(..), Some(ArithmeticDelta(100)));
-                assert_eq!(sct.get_aggregate_via_diff(..), sct.get_aggregate(..));
+        assert_eq!(sct.get_aggregate_diffed(..), Some(ArithmeticDelta(100)));
+                assert_eq!(sct.get_aggregate_diffed(..), sct.get_aggregate(..));
 
         // Sub-range 1..3 (commits 1 & 2 -> 20 + 30 = 50)
-        assert_eq!(sct.get_aggregate_via_diff(1..3), Some(ArithmeticDelta(50)));
-        assert_eq!(sct.get_aggregate_via_diff(1..3), sct.get_aggregate(1..3));
+        assert_eq!(sct.get_aggregate_diffed(1..3), Some(ArithmeticDelta(50)));
+        assert_eq!(sct.get_aggregate_diffed(1..3), sct.get_aggregate(1..3));
 
         // Inclusive range 2..=3 (commits 2 & 3 -> 30 + 40 = 70)        
-        assert_eq!(sct.get_aggregate_via_diff(2..=3), Some(ArithmeticDelta(70)));
-        assert_eq!(sct.get_aggregate_via_diff(2..=3), sct.get_aggregate(2..=3));
+        assert_eq!(sct.get_aggregate_diffed(2..=3), Some(ArithmeticDelta(70)));
+        assert_eq!(sct.get_aggregate_diffed(2..=3), sct.get_aggregate(2..=3));
 
         // Empty / Invalid Ranges
-        assert_eq!(sct.get_aggregate_via_diff(2..2), None);
-        assert_eq!(sct.get_aggregate_via_diff(3..1), None);
-        assert_eq!(sct.get_aggregate_via_diff(0..10), None);
+        assert_eq!(sct.get_aggregate_diffed(2..2), None);
+        assert_eq!(sct.get_aggregate_diffed(3..1), None);
+        assert_eq!(sct.get_aggregate_diffed(0..10), None);
     }
 
     #[test]

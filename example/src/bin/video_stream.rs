@@ -30,7 +30,7 @@ struct VideoServer {
 impl VideoServer {
     /// Fast range diffing in O(interval) time instead of O(N) delta aggregation.
     fn diff_across_many_fast(&self, range: impl RangeBounds<usize>) -> Option<FrameDelta> {
-        self.timeline.get_aggregate_via_diff(range)
+        self.timeline.get_aggregate_diffed(range)
     }
 
     /// Returns a direct diff between any two frame indices (forward or backward).
