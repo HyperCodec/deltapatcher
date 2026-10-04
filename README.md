@@ -159,7 +159,7 @@ just run-example video_stream
   - `SetDelta` — insertion and removal sets for `HashSet` / `BTreeSet`
   - `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
   - `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
-  - `MyersSliceDelta` - Myers algorithm for huge slice diffing.
+  - `MyersSliceDelta` — Myers algorithm for huge slice diffing.
 - **Compact / bitpacked serialization** — an opt-in binary format (behind a feature flag) that encodes deltas far more densely than `serde` + any text format can. Candidates include bitpacking index and length fields in `SliceDelta` entries and using varint encoding for arithmetic deltas, with the whole thing potentially exposed as a `deku`-backed implementation.
 - **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
 - **`#[derive(WrappingArithmetic)]`** — remove the boilerplate of implementing the trait by hand for newtype wrappers and simple structs.
