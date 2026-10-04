@@ -8,6 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 documentation.workspace = true
 description = "Compute, aggregate, and patch typed deltas between states with timelines, caching, and efficient bidirectional seeking."
+readme = "../README.md"
 keywords = ["delta", "diff", "patch", "state", "timeline"]
 categories = ["data-structures", "algorithms"]
 publish = true
