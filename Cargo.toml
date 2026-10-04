@@ -3,7 +3,7 @@ members = ["deltapatcher", "deltapatcher-macros", "example"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["HyperCodec"]
 license = "MIT OR Apache-2.0"
@@ -12,5 +12,5 @@ homepage = "https://github.com/HyperCodec/deltapatcher"
 documentation = "https://docs.rs/deltapatcher"
 
 [workspace.dependencies]
-deltapatcher = { path = "deltapatcher", version = "0.1.0" }
-deltapatcher-macros = { path = "deltapatcher-macros", version = "0.1.0" }
+deltapatcher = { path = "deltapatcher", version = "0.1.1" }
+deltapatcher-macros = { path = "deltapatcher-macros", version = "0.1.1" }

@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "deltapatcher"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "deltapatcher-macros",
  "serde",
@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "deltapatcher-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "example"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "deltapatcher",
  "rand",
