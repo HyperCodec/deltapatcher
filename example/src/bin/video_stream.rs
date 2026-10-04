@@ -43,6 +43,10 @@ impl VideoServer {
 impl From<RawVideo> for VideoServer {
     fn from(video: RawVideo) -> Self {
         let initial_frame = video[0];
+
+        // this is an embarassingly parallel iterator:
+        // we can replace `.windows(2)` with rayon's `.par_windows(2)`
+        // and it becomes an efficient parallel algorithm with minimal effort.
         let commits = video
             .windows(2)
             .map(|w| Commit::new_with_default(w[1].diff(&w[0])));
