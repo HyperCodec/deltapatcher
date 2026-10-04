@@ -1,0 +1,107 @@
+name: Publish
+
+# Triggered manually from the GitHub UI (Actions → Publish → Run workflow).
+# Provide the new semver version string (e.g. "0.2.0") and the workflow will:
+#   1. Verify the workspace builds and all tests pass.
+#   2. Stamp the new version into [workspace.package] and the two workspace
+#      dependency declarations so every crate stays in sync.
+#   3. Commit + tag the bump, then push to master.
+#   4. Publish deltapatcher-macros first (no intra-workspace runtime deps),
+#      then deltapatcher (which depends on the macros crate).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0) — must be a valid semver string"
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # --no-verify skips the local `cargo package` duplicate check; the registry
+  # will still validate the package contents.
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push the version-bump commit and tag
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # A non-shallow clone is required so we can push the bump commit.
+          fetch-depth: 0
+
+      # ── Rust toolchain ───────────────────────────────────────────────────
+      - name: Install Rust (stable ≥ 1.85 for edition 2024)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      # ── Cargo registry & build cache ─────────────────────────────────────
+      - name: Cache Cargo registry & build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # ── Install cargo-edit (provides `cargo set-version`) ────────────────
+      - name: Install cargo-edit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit
+
+      # ── Validate the version string ──────────────────────────────────────
+      - name: Validate semver input
+        run: |
+          VERSION="${{ inputs.version }}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$'; then
+            echo "::error::\"$VERSION\" is not a valid semver string."
+            exit 1
+          fi
+
+      # ── Bump the version everywhere in the workspace ─────────────────────
+      # `cargo set-version` updates [workspace.package].version and every
+      # workspace-dependency entry that carries a `version` field.
+      - name: Bump workspace version to ${{ inputs.version }}
+        run: cargo set-version --workspace ${{ inputs.version }}
+
+      # ── Sanity-check: build + test at the new version ────────────────────
+      - name: Run full test suite
+        run: cargo test --workspace --all-features
+
+      # ── Commit the version bump ──────────────────────────────────────────
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit & tag version bump
+        run: |
+          git add Cargo.toml Cargo.lock deltapatcher/Cargo.toml deltapatcher-macros/Cargo.toml
+          git commit -m "chore: release v${{ inputs.version }}"
+          git tag "v${{ inputs.version }}"
+
+      - name: Push commit and tag
+        run: git push origin master --tags
+
+      # ── Publish (macros first, then the main crate) ──────────────────────
+      # deltapatcher-macros has no intra-workspace runtime deps, so it must
+      # land on crates.io before deltapatcher can reference it by version.
+      - name: Publish deltapatcher-macros
+        run: cargo publish --package deltapatcher-macros
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # crates.io needs a moment to index the new package before a dependent
+      # crate can reference it by version number.
+      - name: Wait for crates.io to index deltapatcher-macros
+        run: sleep 20
+
+      - name: Publish deltapatcher
+        run: cargo publish --package deltapatcher
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
