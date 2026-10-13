@@ -1,8 +1,8 @@
-use deltapatcher::{Differentiate, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
+use deltapatcher::{Diff, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
 
 // ── Struct example ────────────────────────────────────────────────────────────
 
-#[derive(Differentiable, Debug, Clone, Copy)]
+#[derive(Diff, Debug, Clone, Copy)]
 // This top-level attribute macro is completely optional.
 #[deltapatcher(
     // Override the name of the generated delta type.
@@ -23,7 +23,7 @@ struct IVec2 {
 }
 
 // note that we can also just implement WrappingArithmetic on IVec2 and use ArithmeticDelta<IVec2> for differentiation.
-// this is because any type with WrappingArithmetic also implements Differentiable<ArithmeticDelta<Self>>.
+// this is because any type with WrappingArithmetic also implements Diff<ArithmeticDelta<Self>>.
 // there is currently no WrappingArithmetic derive macro.
 impl WrappingArithmetic for IVec2 {
     fn wrapping_add(self, rhs: Self) -> Self {
@@ -49,7 +49,7 @@ impl WrappingArithmetic for IVec2 {
 /// The derive macro generates a `ShapeDelta` enum with a matching variant for
 /// each source variant (carrying per-field deltas) and an extra `Replace`
 /// variant for transitions between different variants.
-#[derive(Differentiable, Debug, Clone, PartialEq)]
+#[derive(Diff, Debug, Clone, PartialEq)]
 #[deltapatcher(delta_derive(Debug))]
 #[allow(dead_code)]
 enum Shape {
