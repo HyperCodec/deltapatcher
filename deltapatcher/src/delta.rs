@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 #[cfg(feature = "macros")]
-pub use deltapatcher_macros::Differentiable;
+pub use deltapatcher_macros::Diff;
 
 /// Trait for types that can compute the difference (delta)
 /// relative to another state of the same type.
@@ -104,7 +104,7 @@ pub trait Patch<D: Delta> {
 /// # Implementing `Delta`
 ///
 /// You typically don't implement `Delta` in isolation — it is paired with a
-/// [`Differentiable`] impl on the state type. The only required method is
+/// [`Diff`] impl on the state type. The only required method is
 /// [`aggregate`][Delta::aggregate]; [`aggregate_owned`][Delta::aggregate_owned]
 /// has a default implementation that simply borrows its argument, but you
 /// should override it whenever moving the data is cheaper than cloning.
@@ -126,7 +126,7 @@ pub trait Patch<D: Delta> {
 /// # Example: composing deltas to skip an intermediate state
 ///
 /// ```rust
-/// use deltapatcher::delta::{Delta, Differentiable};
+/// use deltapatcher::delta::{Delta, Diff};
 ///
 /// let a = vec![1i32, 2, 3];
 /// let b = vec![1i32, 9, 3];     // A → B
@@ -172,7 +172,7 @@ pub trait Delta {
     /// # Example
     ///
     /// ```rust
-    /// use deltapatcher::delta::{Delta, Differentiable};
+    /// use deltapatcher::delta::{Delta, Diff};
     ///
     /// let a = vec![1u8, 2, 3];
     /// let b = vec![1u8, 5, 3];
@@ -440,7 +440,7 @@ impl<T: Clone> Delta for SliceDelta<T> {
 
 /// Computes a [`SliceDelta`] representing the changes needed to turn
 /// `initial` into `final_`, via LCS-based diffing. Shared between the
-/// `Vec<T>` and `[T]` [`Differentiable`] impls — diffing itself doesn't
+/// `Vec<T>` and `[T]` [`Diff`] impls — diffing itself doesn't
 /// care whether the result will later be applied to a resizable or
 /// fixed-size container; only `patch` differs between them.
 fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<T> {
@@ -813,11 +813,11 @@ mod tests {
         }
     }
 
-        /// Tests for `#[derive(Differentiable)]` on enums.
+        /// Tests for `#[derive(Diff)]` on enums.
     #[cfg(feature = "macros")]
     mod derive_enum {
         use super::*;
-        use deltapatcher_macros::Differentiable;
+        use deltapatcher_macros::Diff;
         // The macro emits `deltapatcher::delta::...` paths.  When the tests
         // run inside the `deltapatcher` crate itself, we need the crate to
         // be accessible under that name.
@@ -829,7 +829,7 @@ mod tests {
 
         /// An enum with every kind of variant (named fields, unnamed fields,
         /// and unit) so that one set of tests covers all three code paths.
-        #[derive(Differentiable, Debug, Clone, PartialEq)]
+        #[derive(Diff, Debug, Clone, PartialEq)]
         enum Shape {
             /// Named-field variant.
             Rect {
