@@ -126,7 +126,7 @@ pub trait Patch<D: Delta> {
 /// # Example: composing deltas to skip an intermediate state
 ///
 /// ```rust
-/// use deltapatcher::delta::{Delta, Diff};
+/// use deltapatcher::delta::{Delta, Patch, Diff};
 ///
 /// let a = vec![1i32, 2, 3];
 /// let b = vec![1i32, 9, 3];     // A → B
@@ -172,7 +172,7 @@ pub trait Delta {
     /// # Example
     ///
     /// ```rust
-    /// use deltapatcher::delta::{Delta, Diff};
+    /// use deltapatcher::delta::{Delta, Patch, Diff};
     ///
     /// let a = vec![1u8, 2, 3];
     /// let b = vec![1u8, 5, 3];

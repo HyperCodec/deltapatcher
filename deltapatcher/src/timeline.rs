@@ -1,6 +1,6 @@
 use std::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
 
-use crate::delta::{Delta, Diff, Patch};
+use crate::delta::{Delta, Diff};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -608,7 +608,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::delta::ArithmeticDelta;
+    use crate::delta::{ArithmeticDelta, Patch};
 
     use super::*;
 
