@@ -1,4 +1,4 @@
-use deltapatcher::{Differentiate, delta::ArithmeticDelta, timeline::{Commit, StateCachedTimeline, Timeline}};
+use deltapatcher::{Diff, Patch, delta::ArithmeticDelta, timeline::{Commit, StateCachedTimeline, Timeline}};
 
 fn main() {
     // --- Serialize and deserialize a SliceDelta ---

@@ -45,7 +45,7 @@ pub mod delta;
 pub mod timeline;
 pub mod util;
 
-pub use delta::{Delta, Differentiate};
+pub use delta::{Delta, Diff, Patch};
 
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros as macros;

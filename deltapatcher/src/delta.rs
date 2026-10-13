@@ -3,152 +3,76 @@ use std::collections::{BTreeMap, VecDeque};
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros::Differentiable;
 
-/// A type that can compute and absorb typed deltas relative to another
-/// instance of itself.
+/// Trait for types that can compute the difference (delta)
+/// relative to another state of the same type.
 ///
-/// `D` is the *delta type* — the value that encodes "what changed". It must
-/// implement [`Delta`], which gives it the ability to be composed (aggregated)
-/// with other deltas of the same kind.
+/// `Diff` represents the generator side of diff patching.
+/// Calling `b.diff(&a)` calculates the delta needed to transform `a` into `b`.
 ///
 /// # Contract
 ///
-/// Implementations must satisfy the **round-trip law**: patching the initial
-/// state with the delta produced by diffing against that initial state must
-/// reproduce the final state exactly. This contract is the reason why [`Patch<D>`]
-/// is required to implement [`Differentiable<D>`].
+/// **Round-Trip Invariant**: If a type `T` implements both [`Diff<D>`] and [`Patch<D>`], the following identity
+/// should hold for any states `a` and `b`:
 ///
 /// ```rust,ignore
-/// let delta = final_state.diff(&initial_state);
-/// initial_state.patch(&delta);
-/// assert_eq!(initial_state, final_state);
+/// let mut state = a.clone();
+/// let delta = b.diff(&a);
+/// state.patch(&delta);
+/// assert_eq!(state, b);
 /// ```
+/// 
+/// In order to help enforce this invariant, it is required that all types capable
+/// of producing a delta (i.e. types implementing [`Diff`]) must also be capable of
+/// consuming the same type of delta (via [`Patch`]).
 ///
-/// # Implementing `Differentiable`
-///
-/// You can implement the trait manually for any type, or (with the `macros`
-/// feature enabled) derive it automatically for structs and enums using
-/// `#[derive(Differentiable)]`.
-///
-/// ## Manual implementation
+/// ### Examples
 ///
 /// ```rust
-/// use deltapatcher::delta::{Delta, Differentiable, ArithmeticDelta};
+/// use deltapatcher::{Diff, Patch, delta::ArithmeticDelta};
 ///
-/// /// A simple 2-D point type.
-/// #[derive(Clone, Copy, Debug, PartialEq)]
-/// struct Point { x: i32, y: i32 }
-///
-/// /// The corresponding delta: one arithmetic delta per field.
-/// #[derive(Clone, Copy)]
-/// struct PointDelta { dx: ArithmeticDelta<i32>, dy: ArithmeticDelta<i32> }
-///
-/// impl Delta for PointDelta {
-///     fn aggregate(&mut self, next: &Self) {
-///         self.dx.aggregate(&next.dx);
-///         self.dy.aggregate(&next.dy);
-///     }
-/// }
-///
-/// impl Differentiable<PointDelta> for Point {
-///     fn diff(&self, initial: &Self) -> PointDelta {
-///         PointDelta {
-///             dx: self.x.diff(&initial.x),
-///             dy: self.y.diff(&initial.y),
-///         }
-///     }
-/// }
-/// 
-/// impl Patch<PointDelta> for Point {
-///     fn patch(&mut self, delta: &PointDelta) {
-///         self.x.patch(&delta.dx);
-///         self.y.patch(&delta.dy);
-///     }
-/// }
-///
-/// let a = Point { x: 1, y: 2 };
-/// let b = Point { x: 4, y: 0 };
-///
-/// let delta = b.diff(&a);
-/// let mut result = a;
-/// result.patch(&delta);
-/// assert_eq!(result, b);
+/// let start = 10i32;
+/// let target = 25i32;
+/// let delta = target.diff(&start);
+/// assert_eq!(delta, ArithmeticDelta(15));
 /// ```
-///
-/// ## Derive macro (requires the `macros` feature)
-///
-/// ```rust,ignore
-/// use deltapatcher::{Differentiable, delta::ArithmeticDelta};
-///
-/// #[derive(Differentiable, Clone)]
-/// struct Point {
-///     #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
-///     x: i32,
-///     #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
-///     y: i32,
-/// }
-/// ```
-///
-/// The macro generates the delta struct, its [`Delta`] impl, and the
-/// [`Differentiable`] impl automatically. See the `deltapatcher-macros` docs
-/// for full attribute reference.
-///
-/// # Built-in implementations
-///
-/// | Type | Delta | Notes |
-/// |------|-------|-------|
-/// | `Vec<T>`, `[T]`, `[T; N]` | [`SliceDelta<T>`] | LCS-based diff |
-/// | All primitive integer types | [`ArithmeticDelta<T>`] | Wrapping arithmetic |
-///
-/// # See also
-///
-/// - [`Delta`] — the trait implemented by the delta value itself.
-/// - [`SliceDelta`] — built-in delta for slices and vectors.
-/// - [`ArithmeticDelta`] — built-in delta for integer primitives.
-pub trait Differentiate<D: Delta>: Patch<D> {
-    /// Compute the delta between `self` (the *final* state) and `initial`.
-    ///
-    /// The returned delta, when passed to [`patch`][Differentiable::patch] on
-    /// a copy of `initial`, must reproduce `self` exactly (the round-trip
-    /// law).
-    ///
-    /// # Arguments
-    ///
-    /// * `initial` — the baseline state to diff against.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use deltapatcher::delta::Differentiable;
-    ///
-    /// let before = vec![1u32, 2, 3, 4];
-    /// let after  = vec![1u32, 9, 3, 4, 5];
-    ///
-    /// let delta = after.diff(&before);
-    ///
-    /// let mut result = before.clone();
-    /// result.patch(&delta);
-    /// assert_eq!(result, after);
-    /// ```
+pub trait Diff<D: Delta>: Patch<D> {
+    /// Computes and returns the delta that transforms `initial` into `self`.
     fn diff(&self, initial: &Self) -> D;
 }
 
+/// Trait for types that can be updated in-place by applying a delta.
+///
+/// `Patch` represents the consumption side of differential patching. A type
+/// implementing [`Patch<D>`] can mutate its state using a delta `D`, without
+/// requiring the capability to compute diffs itself.
+///
+/// ### Examples
+///
+/// ```rust
+/// use deltapatcher::{Patch, delta::ArithmeticDelta};
+///
+/// let mut value = 10i32;
+/// value.patch(&ArithmeticDelta(5));
+/// assert_eq!(value, 15);
+/// ```
 pub trait Patch<D: Delta> {
     /// Apply `delta` to `self` in place, advancing it from its current state
     /// to a new state along the delta.
     /// 
-    /// ### Round-Trip Law
-    /// If the delta parameter was generated by [`Differentiable::diff`] and `self` was
-    /// the initial state, then the resulting value of `self` after the method call must
-    /// be equivalent to the final state. See [`Differentiable`] docs for more info.
+    /// # Contract
+    /// **Round-Trip Invariant**: For a given call to `patch(&mut self, delta)`, if the delta parameter was
+    /// generated by [`diff`][Diff::diff] with `self` as the initial state, then the resulting value of `self`
+    /// after the call to [`patch`][Self::patch] must be equivalent to the final state passed to [`diff`][Diff::diff].
+    /// See [`Diff`] docs for more info.
     ///
-    /// # Arguments
+    /// ### Arguments
     ///
-    /// * `delta` — The delta between states.
+    /// * `delta` — The [`Delta`] between states.
     ///
-    /// # Example
+    /// ### Example
     ///
     /// ```rust
-    /// use deltapatcher::delta::{Differentiable, Patch};
+    /// use deltapatcher::delta::{Diff, Patch};
     ///
     /// let before = vec![1u32, 2, 3];
     /// let after  = vec![1u32, 2, 3, 4, 5];
@@ -221,7 +145,8 @@ pub trait Patch<D: Delta> {
 ///
 /// # See also
 ///
-/// - [`Differentiable`] — the trait for types that *produce* and *consume* deltas.
+/// - [`Diff`] — the trait for types that *produce* deltas.
+/// - [`Patch`] — the trait for types that *consume* deltas.
 /// - [`SliceDelta`] — built-in delta for [`Vec<T>`], slices, and arrays.
 /// - [`ArithmeticDelta`] — built-in delta for integer primitives.
 pub trait Delta {
@@ -586,7 +511,7 @@ fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<
     SliceDelta { entries }
 }
 
-impl<T: Clone + PartialEq> Differentiate<SliceDelta<T>> for Vec<T> {
+impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for Vec<T> {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
@@ -603,7 +528,7 @@ impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
     }
 }
 
-impl<T: Clone + PartialEq> Differentiate<SliceDelta<T>> for [T] {
+impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for [T] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
@@ -642,9 +567,9 @@ impl<T: Clone> Patch<SliceDelta<T>> for [T] {
     }
 }
 
-impl<T: Clone + PartialEq, const N: usize> Differentiate<SliceDelta<T>> for [T; N] {
+impl<T: Clone + PartialEq, const N: usize> Diff<SliceDelta<T>> for [T; N] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
-        <[T] as Differentiate<SliceDelta<T>>>::diff(self, initial)
+        <[T] as Diff<SliceDelta<T>>>::diff(self, initial)
     }
 }
 
@@ -761,7 +686,7 @@ impl_wrapping_arith! {
     i64
 }
 
-impl<T: WrappingArithmetic> Differentiate<ArithmeticDelta<Self>> for T
+impl<T: WrappingArithmetic> Diff<ArithmeticDelta<Self>> for T
 {
     fn diff(&self, initial: &Self) -> ArithmeticDelta<Self> {
         ArithmeticDelta(self.wrapping_sub(*initial))
@@ -783,7 +708,7 @@ mod tests {
 
     fn assert_roundtrip<T, D>(initial: T, final_: T)
     where 
-        T: Differentiate<D> + Clone + PartialEq + std::fmt::Debug,
+        T: Diff<D> + Clone + PartialEq + std::fmt::Debug,
         D: Delta,
     {
         let delta = final_.diff(&initial);

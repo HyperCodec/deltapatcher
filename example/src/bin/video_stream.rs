@@ -1,6 +1,7 @@
 use std::ops::RangeBounds;
 use deltapatcher::{
-    Differentiate,
+    Diff,
+    Patch,
     delta::SliceDelta,
     timeline::{Commit, StateCachedTimeline},
 };

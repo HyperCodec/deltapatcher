@@ -1,6 +1,6 @@
 use std::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
 
-use crate::delta::{Delta, Differentiate};
+use crate::delta::{Delta, Diff, Patch};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -185,7 +185,7 @@ impl<D: Delta, M> Timeline<D, M> {
     /// This runs in O(n). If this is not ideal, use [`StateCachedTimeline`] instead.
     pub fn build_state<T, R>(&self, state: &mut T, range: R)
     where
-        T: Differentiate<D>,
+        T: Diff<D>,
         R: SliceIndex<[Commit<D, M>], Output = [Commit<D, M>]>,
     {
         for commit in &self.commits[range] {
@@ -197,7 +197,7 @@ impl<D: Delta, M> Timeline<D, M> {
     /// This runs in O(n). If this is not ideal, use [`StateCachedTimeline`] instead.
     pub fn build_state_from_default<T, R>(&self, range: R) -> T
     where
-        T: Differentiate<D> + Default,
+        T: Diff<D> + Default,
         R: SliceIndex<[Commit<D, M>], Output = [Commit<D, M>]>,
     {
         let mut state = T::default();
@@ -303,7 +303,7 @@ impl<D: Delta + Clone, M: Clone> Delta for Timeline<D, M> {
 /// it don't need to be reflected in any cached state.
 fn build_state_cache<T, D, M>(initial_state: T, timeline: &Timeline<D, M>, interval: usize) -> Vec<T>
 where
-    T: Differentiate<D> + Clone,
+    T: Diff<D> + Clone,
     D: Delta,
 {
     let cached_count = timeline.len() / interval;
@@ -340,7 +340,7 @@ where
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateCachedTimeline<T, D, M = ()>
 where
-    T: Differentiate<D> + Clone,
+    T: Diff<D> + Clone,
     D: Delta,
 {
     timeline: Timeline<D, M>,
@@ -354,7 +354,7 @@ where
 
 impl<T, D, M> StateCachedTimeline<T, D, M>
 where
-    T: Differentiate<D> + Clone,
+    T: Diff<D> + Clone,
     D: Delta,
 {
     pub fn new(state_cache_interval: usize, initial_state: T) -> Self {
@@ -571,7 +571,7 @@ where
 
 impl<T, D, M> Extend<Commit<D, M>> for StateCachedTimeline<T, D, M>
 where
-    T: Differentiate<D> + Clone,
+    T: Diff<D> + Clone,
     D: Delta,
 {
     fn extend<I: IntoIterator<Item = Commit<D, M>>>(&mut self, iter: I) {
@@ -596,7 +596,7 @@ where
 
 impl<T, D, M> Deref for StateCachedTimeline<T, D, M>
 where
-    T: Differentiate<D> + Clone,
+    T: Diff<D> + Clone,
     D: Delta,
 {
     type Target = Timeline<D, M>;
