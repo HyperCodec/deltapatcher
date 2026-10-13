@@ -526,7 +526,6 @@ impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
             self.splice(start..end, entry.add.iter().cloned());
         }
     }
-}
 
 impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for [T] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
@@ -534,7 +533,7 @@ impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for [T] {
     }
 }
 
-impl<T: Clone> Patch<SliceDelta<T>> for [T] {
+impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
     /// Applies `delta`, panicking if the result would be longer than `self`.
     ///
     /// Unlike `Vec::patch`, this can't grow the underlying storage, and
@@ -565,17 +564,19 @@ impl<T: Clone> Patch<SliceDelta<T>> for [T] {
         );
         self[..buffer.len()].clone_from_slice(&buffer);
     }
+
+        fn diff(&self, initial: &Self) -> SliceDelta<T> {
+        diff_slices(initial, self)
+    }
 }
 
 impl<T: Clone + PartialEq, const N: usize> Diff<SliceDelta<T>> for [T; N] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         <[T] as Diff<SliceDelta<T>>>::diff(self, initial)
     }
-}
 
-impl<T: Clone, const N: usize> Patch<SliceDelta<T>> for [T; N] {
     fn patch(&mut self, delta: &SliceDelta<T>) {
-        <[T] as Patch<SliceDelta<T>>>::patch(self, delta)
+        <[T]>::patch(self, delta)
     }
 }
 
@@ -691,10 +692,7 @@ impl<T: WrappingArithmetic> Diff<ArithmeticDelta<Self>> for T
     fn diff(&self, initial: &Self) -> ArithmeticDelta<Self> {
         ArithmeticDelta(self.wrapping_sub(*initial))
     }
-}
 
-impl<T: WrappingArithmetic> Patch<ArithmeticDelta<Self>> for T
-{
     fn patch(&mut self, delta: &ArithmeticDelta<Self>) {
         *self = self.wrapping_add(delta.0);
     }
