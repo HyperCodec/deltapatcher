@@ -4,26 +4,27 @@ A Rust library for computing, composing, and applying **deltas** (diffs) between
 
 ## Overview
 
-`deltapatcher` provides two core traits:
+`deltapatcher` provides three core traits:
 
-- **`Differentiable<D>`** — implemented by any type that can compute a delta `D` to/from another instance of itself, and apply one.
-- **`Delta`** — implemented by the delta type itself, allowing deltas to be composed (aggregated) together.
+* **`Patch<D>`** — implemented by types that can apply a delta `D` to mutate their state in-place.
+* **`Diff<D>`** — implemented by types that can compute a delta `D` relative to an initial state (requires `Patch<D>`).
+* **`Delta`** — implemented by delta types, allowing sequential deltas to be composed (aggregated) together.
 
 Built-in implementations are provided for `Vec<T>`, slices `[T]`, fixed-size arrays `[T; N]`, and all primitive integer types (with more planned soon).
 
 ## Features
 
 | Feature | Description |
-|---|---|
-| `macros` | Enables the `#[derive(Differentiable)]` proc-macro to auto-generate delta types for structs/enums composed from differentiables |
+| --- | --- |
+| `macros` | Enables the `#[derive(Diff)]` proc-macro to auto-generate delta types for structs/enums composed from diffable fields |
 | `serde` | Enables `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
 ## Core Concepts
 
-### `Differentiable` and `Delta`
+### `Diff` and `Patch`
 
 ```rust
-use deltapatcher::{Differentiable, Delta};
+use deltapatcher::{Diff, Patch};
 
 let start = vec![1, 2, 3, 4, 5];
 let end   = vec![1, 9, 3, 4, 10, 5];
@@ -35,6 +36,7 @@ let delta = end.diff(&start);
 let mut other = start.clone();
 other.patch(&delta);
 assert_eq!(other, end);
+
 ```
 
 ### Delta Aggregation
@@ -51,31 +53,33 @@ a_to_c.aggregate_owned(b_to_c);
 let mut result = a.clone();
 result.patch(&a_to_c);
 assert_eq!(result, c);
+
 ```
 
 This is especially useful in networking scenarios (e.g. game state sync, media streaming) where you want to send a single compact delta instead of multiple incremental ones or a full snapshot.
 
 ## Built-in Delta Types
 
-- **`SliceDelta<T>`** — LCS-based diff for `Vec<T>`, `[T]`, and `[T; N]`. Stores changes as a compact set of non-overlapping splice entries that can be correctly aggregated without knowing the intermediate state.
-- **`ArithmeticDelta<T>`** — wrapping-arithmetic delta for all primitive integer types. Any type implementing the `WrappingArithmetic` trait gets a `Differentiable<ArithmeticDelta<Self>>` impl for free.
+* **`SliceDelta<T>`** — LCS-based diff for `Vec<T>`, `[T]`, and `[T; N]`. Stores changes as a compact set of non-overlapping splice entries that can be correctly aggregated without knowing the intermediate state.
+* **`ArithmeticDelta<T>`** — wrapping-arithmetic delta for all primitive integer types. Any type implementing the `WrappingArithmetic` trait gets `Patch<ArithmeticDelta<Self>>` and `Diff<ArithmeticDelta<Self>>` impls for free.
 
 Full API details on [docs.rs](https://docs.rs/deltapatcher).
 
-## `#[derive(Differentiable)]` Macro
+## `#[derive(Diff)]` Macro
 
-Enable the `macros` feature to derive `Differentiable` for your own structs. Each field is annotated with the delta type it should use, and the macro generates the delta struct along with its `Delta` and `Differentiable` impls.
+Enable the `macros` feature to derive `Diff` and `Patch` for your own structs and enums. Each field is annotated with the delta type it should use, and the macro generates the delta struct/enum along with its `Delta`, `Patch`, and `Diff` impls.
 
 ```toml
 # Cargo.toml
 [dependencies]
 deltapatcher = { version = "*", features = ["macros"] }
+
 ```
 
 ```rust
-use deltapatcher::{Differentiable, delta::ArithmeticDelta};
+use deltapatcher::{Diff, delta::ArithmeticDelta, delta::SliceDelta};
 
-#[derive(Differentiable, Debug, Clone, Copy)]
+#[derive(Diff, Debug, Clone, Copy)]
 #[deltapatcher(
     delta_name = PosDelta,          // optional: override the generated type name
     delta_derive(Debug, Clone),     // optional: derives to add to the generated type
@@ -88,7 +92,7 @@ struct Position {
     y: i32,
 }
 
-#[derive(Differentiable, Debug, Clone)]
+#[derive(Diff, Debug, Clone)]
 enum State {
     A {
         #[deltapatcher(delta_ty = ArithmeticDelta<u32>)]
@@ -103,6 +107,7 @@ enum State {
     ),
     C,
 }
+
 ```
 
 Run `cargo expand` to inspect the generated code.
@@ -126,19 +131,33 @@ let server_timeline = StateCachedTimeline::from_commits(
 );
 
 // Client: seek forward
-let delta = server_timeline.delta_between(current_frame, target_frame).unwrap();
+let delta = server_timeline.diff_between(current_frame, target_frame).unwrap();
 current_frame_data.patch(&delta);
 
-// Client: seek backward — no full snapshot needed
-let inv_delta = server_timeline.delta_between(current_frame, earlier_frame).unwrap();
+// Client: seek backward — inverse delta calculated directly in O(interval)
+let inv_delta = server_timeline.diff_between(current_frame, earlier_frame).unwrap();
 current_frame_data.patch(&inv_delta);
+
 ```
 
-See [`example/src/bin/video_stream.rs`](example/src/bin/video_stream.rs) for the full runnable version.
+See [`example/src/bin/video_stream.rs`](https://www.google.com/search?q=example/src/bin/video_stream.rs) for the full runnable version.
 
 ## Utilities
 
-**`ChangeBucket<T, D>`** holds "before" and "after" copies of a value. Mutate it freely through `DerefMut`, then call `pop()` to extract the accumulated delta and reset the baseline — useful for building pipelines that only emit commits when something actually changes.
+**`ChangeBucket<T>`** holds "old" and "new" copies of a value. Mutate `new` freely through `DerefMut`, then call `pop::<D>()` to extract the accumulated delta as any supported delta type and reset the baseline — useful for building pipelines that only emit commits when something actually changes.
+
+```rust
+let mut bucket = ChangeBucket::new(IVec2 { x: 0, y: 0 });
+bucket.x += 10;
+
+if bucket.is_dirty() {
+    let delta: VecDelta = bucket.pop();
+    // process or send delta...
+}
+
+```
+
+Additional helpers include `peek::<D>()`, `discard()`, and `checkpoint()`.
 
 Full API details on [docs.rs](https://docs.rs/deltapatcher).
 
@@ -150,22 +169,25 @@ This repo uses a dedicated `example` crate with multiple binaries. Run any examp
 just run-example basic
 just run-example macros
 just run-example video_stream
+
 ```
 
 ## Roadmap
 
-- **More built-in delta types**
-  - `MapDelta` — key-level insert/remove/update entries
-  - `SetDelta` — insertion and removal sets for `HashSet` / `BTreeSet`
-  - `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
-  - `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
-  - `MyersSliceDelta` — Myers algorithm for huge slice diffing.
-- **Compact / bitpacked serialization** — an opt-in binary format (behind a feature flag) that encodes deltas far more densely than `serde` + any text format can. Candidates include bitpacking index and length fields in `SliceDelta` entries and using varint encoding for arithmetic deltas, with the whole thing potentially exposed as a `deku`-backed implementation.
-- **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
-- **`#[derive(WrappingArithmetic)]`** — remove the boilerplate of implementing the trait by hand for newtype wrappers and simple structs.
-- **Async / streaming timeline** — a `StreamingTimeline` adapter that yields commits as a `Stream`, targeting networked applications that push state changes in real time.
-- **`no_std` support** — remove the hard dependency on `std` so the core traits and delta types can be used in embedded and WASM environments.
+* **More built-in delta types**
+* `MapDelta` — key-level insert/remove/update entries
+* `SetDelta` — insertion and removal sets for `HashSet` / `BTreeSet`
+* `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
+* `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
+* `MyersSliceDelta` — Myers algorithm for huge slice diffing.
+
+
+* **Compact / bitpacked serialization** — an opt-in binary format (behind a feature flag) that encodes deltas far more densely than `serde` + any text format can. Candidates include bitpacking index and length fields in `SliceDelta` entries and using varint encoding for arithmetic deltas, with the whole thing potentially exposed as a `deku`-backed implementation.
+* **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
+* **`#[derive(WrappingArithmetic)]`** — remove the boilerplate of implementing the trait by hand for newtype wrappers and simple structs.
+* **Async / streaming timeline** — a `StreamingTimeline` adapter that yields commits as a `Stream`, targeting networked applications that push state changes in real time.
+* **`no_std` support** — remove the hard dependency on `std` so the core traits and delta types can be used in embedded and WASM environments.
 
 ## License
 
-Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option.
+Licensed under either of [MIT](https://www.google.com/search?q=LICENSE-MIT) or [Apache-2.0](https://www.google.com/search?q=LICENSE-APACHE) at your option.
