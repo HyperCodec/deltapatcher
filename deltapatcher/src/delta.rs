@@ -25,7 +25,7 @@ pub use deltapatcher_macros::Differentiable;
 /// of producing a delta (i.e. types implementing [`Diff`]) must also be capable of
 /// consuming the same type of delta (via [`Patch`]).
 ///
-/// ### Examples
+/// # Examples
 ///
 /// ```rust
 /// use deltapatcher::{Diff, Patch, delta::ArithmeticDelta};
@@ -46,7 +46,7 @@ pub trait Diff<D: Delta>: Patch<D> {
 /// implementing [`Patch<D>`] can mutate its state using a delta `D`, without
 /// requiring the capability to compute diffs itself.
 ///
-/// ### Examples
+/// # Examples
 ///
 /// ```rust
 /// use deltapatcher::{Patch, delta::ArithmeticDelta};
@@ -65,11 +65,11 @@ pub trait Patch<D: Delta> {
     /// after the call to [`patch`][Self::patch] must be equivalent to the final state passed to [`diff`][Diff::diff].
     /// See [`Diff`] docs for more info.
     ///
-    /// ### Arguments
+    /// # Arguments
     ///
     /// * `delta` — The [`Delta`] between states.
     ///
-    /// ### Example
+    /// # Example
     ///
     /// ```rust
     /// use deltapatcher::delta::{Diff, Patch};
