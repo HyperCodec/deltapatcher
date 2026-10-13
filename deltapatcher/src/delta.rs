@@ -101,7 +101,7 @@ pub use deltapatcher_macros::Differentiable;
 /// - [`Delta`] — the trait implemented by the delta value itself.
 /// - [`SliceDelta`] — built-in delta for slices and vectors.
 /// - [`ArithmeticDelta`] — built-in delta for integer primitives.
-pub trait Differentiable<D: Delta> {
+pub trait Differentiable<D: Delta>: Patch<D> {
     /// Compute the delta between `self` (the *final* state) and `initial`.
     ///
     /// The returned delta, when passed to [`patch`][Differentiable::patch] on
@@ -127,7 +127,9 @@ pub trait Differentiable<D: Delta> {
     /// assert_eq!(result, after);
     /// ```
     fn diff(&self, initial: &Self) -> D;
+}
 
+pub trait Patch<D: Delta> {
     /// Apply `delta` to `self` in place, advancing it from its current state
     /// to the state that was used to produce the delta.
     ///
@@ -577,6 +579,12 @@ fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<
 }
 
 impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
+    fn diff(&self, initial: &Self) -> SliceDelta<T> {
+        diff_slices(initial, self)
+    }
+}
+
+impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         for entry in delta.entries.values().rev() {
             let start = entry.start_index as usize;
@@ -585,13 +593,15 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for Vec<T> {
             self.splice(start..end, entry.add.iter().cloned());
         }
     }
+}
 
-        fn diff(&self, initial: &Self) -> SliceDelta<T> {
+impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
+    fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
 
-impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
+impl<T: Clone> Patch<SliceDelta<T>> for [T] {
     /// Applies `delta`, panicking if the result would be longer than `self`.
     ///
     /// Unlike `Vec::patch`, this can't grow the underlying storage, and
@@ -622,19 +632,17 @@ impl<T: Clone + PartialEq> Differentiable<SliceDelta<T>> for [T] {
         );
         self[..buffer.len()].clone_from_slice(&buffer);
     }
-
-        fn diff(&self, initial: &Self) -> SliceDelta<T> {
-        diff_slices(initial, self)
-    }
 }
 
 impl<T: Clone + PartialEq, const N: usize> Differentiable<SliceDelta<T>> for [T; N] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
-        <[T]>::diff(self, initial)
+        <[T] as Differentiable<SliceDelta<T>>>::diff(self, initial)
     }
+}
 
+impl<T: Clone, const N: usize> Patch<SliceDelta<T>> for [T; N] {
     fn patch(&mut self, delta: &SliceDelta<T>) {
-        <[T]>::patch(self, delta)
+        <[T] as Patch<SliceDelta<T>>>::patch(self, delta)
     }
 }
 
@@ -750,7 +758,10 @@ impl<T: WrappingArithmetic> Differentiable<ArithmeticDelta<Self>> for T
     fn diff(&self, initial: &Self) -> ArithmeticDelta<Self> {
         ArithmeticDelta(self.wrapping_sub(*initial))
     }
+}
 
+impl<T: WrappingArithmetic> Patch<ArithmeticDelta<Self>> for T
+{
     fn patch(&mut self, delta: &ArithmeticDelta<Self>) {
         *self = self.wrapping_add(delta.0);
     }
