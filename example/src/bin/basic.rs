@@ -1,4 +1,4 @@
-use deltapatcher::{Delta, Diff};
+use deltapatcher::{Delta, Patch, Diff};
 use rand::RngExt;
 
 fn main() {
