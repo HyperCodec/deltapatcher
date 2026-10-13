@@ -1,4 +1,4 @@
-use deltapatcher::{Differentiable, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
+use deltapatcher::{Differentiate, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
 
 // ── Struct example ────────────────────────────────────────────────────────────
 

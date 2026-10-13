@@ -2,13 +2,13 @@
 
 use std::ops::{Deref, DerefMut};
 
-use crate::{Delta, Differentiable};
+use crate::{Delta, Differentiate};
 
 /// A wrapper that holds two copies of a type and tracks
 /// the difference between the initial and final value to generate a delta.
 pub struct ChangeBucket<T, D>
 where 
-    T: Differentiable<D> + Clone,
+    T: Differentiate<D> + Clone,
     D: Delta
 {
     old: T,
@@ -18,7 +18,7 @@ where
 
 impl<T, D> ChangeBucket<T, D>
 where 
-    T: Differentiable<D> + Clone,
+    T: Differentiate<D> + Clone,
     D: Delta
 {
     pub fn new(initial: T) -> Self {
@@ -40,7 +40,7 @@ where
 
 impl<T, D> Deref for ChangeBucket<T, D>
 where 
-    T: Differentiable<D> + Clone,
+    T: Differentiate<D> + Clone,
     D: Delta
 {
     type Target = T;
@@ -52,7 +52,7 @@ where
 
 impl<T, D> DerefMut for ChangeBucket<T, D>
 where 
-    T: Differentiable<D> + Clone,
+    T: Differentiate<D> + Clone,
     D: Delta
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
