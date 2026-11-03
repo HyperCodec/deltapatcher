@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 #[cfg(feature = "macros")]
-pub use deltapatcher_macros::Diff;
+pub use deltapatcher_macros::{Diff, Patch};
 
 /// Trait for types that can compute the difference (delta)
 /// relative to another state of the same type.
