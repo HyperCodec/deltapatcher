@@ -8,7 +8,7 @@ use darling::{FromAttributes, FromDeriveInput};
 /// Field-level config via attributes.
 #[derive(FromAttributes)]
 #[darling(attributes(deltapatcher))]
-struct DiffFieldConfig {
+struct MacroFieldConfig {
     /// For fields with multiple candidate delta types,
     /// use this to specify the delta type to use.
     delta_ty: syn::Type,
@@ -17,13 +17,13 @@ struct DiffFieldConfig {
 /// Struct-level config via attributes.
 #[derive(FromDeriveInput)]
 #[darling(attributes(deltapatcher))]
-struct DiffOverallConfig {
+struct MacroOverallConfig {
     delta_name: Option<syn::Ident>,
     delta_vis: Option<syn::Visibility>,
     delta_derive: Option<Vec<syn::Ident>>,
 }
 
-impl DiffOverallConfig {
+impl MacroOverallConfig {
     fn delta_name_or_default(&self, ty_name: &syn::Ident) -> syn::Ident {
         self.delta_name
             .clone()
@@ -31,28 +31,65 @@ impl DiffOverallConfig {
     }
 }
 
+/// Helper to detect if `Diff` is also being derived, to avoid duplicate code generation.
+fn has_derive_diff(ast: &DeriveInput) -> bool {
+    ast.attrs.iter().any(|attr| {
+        if attr.path().is_ident("derive") {
+            let mut found_diff = false;
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("Diff") {
+                    found_diff = true;
+                }
+                Ok(())
+            });
+            found_diff
+        } else {
+            false
+        }
+    })
+}
+
 /// Derives [`Diff`] and [`Patch`] for a struct or enum, generating a corresponding Delta type.
 #[proc_macro_derive(Diff, attributes(deltapatcher))]
 pub fn derive_diff(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
-    let top_level_config = DiffOverallConfig::from_derive_input(&ast).unwrap();
+    expand_macro(ast, true)
+}
+
+/// Derives only [`Patch`] for a struct or enum, generating a corresponding Delta type.
+#[proc_macro_derive(Patch, attributes(deltapatcher))]
+pub fn derive_patch(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    
+    // If both Diff and Patch are derived, let derive(Diff) handle everything
+    // to prevent duplicate Delta structs and implementations.
+    if has_derive_diff(&ast) {
+        return TokenStream::new();
+    }
+    
+    expand_macro(ast, false)
+}
+
+fn expand_macro(ast: DeriveInput, generate_diff: bool) -> TokenStream {
+    let top_level_config = MacroOverallConfig::from_derive_input(&ast).unwrap();
 
     match ast.data {
-        Data::Enum(e) => diff_enum(ast.ident, e, top_level_config),
-        Data::Struct(s) => diff_struct(ast.vis, ast.ident, s, top_level_config),
+        Data::Enum(e) => expand_enum(ast.ident, e, top_level_config, generate_diff),
+        Data::Struct(s) => expand_struct(ast.vis, ast.ident, s, top_level_config, generate_diff),
         Data::Union(_) => Err(syn::Error::new(
             Span::call_site(),
-            "Unions are not supported by #[derive(Diff)]",
+            "Unions are not supported by deltapatcher derives",
         )),
     }
     .unwrap_or_else(syn::Error::into_compile_error)
     .into()
 }
 
-fn diff_enum(
+fn expand_enum(
     ident: syn::Ident,
     e: syn::DataEnum,
-    config: DiffOverallConfig,
+    config: MacroOverallConfig,
+    generate_diff: bool,
 ) -> syn::Result<TokenStream2> {
     let delta_name = config.delta_name_or_default(&ident);
     let delta_derive = config
@@ -71,7 +108,7 @@ fn diff_enum(
     for variant in &e.variants {
         let mut delta_types = Vec::with_capacity(variant.fields.len());
         for field in &variant.fields {
-            if let Ok(field_config) = DiffFieldConfig::from_attributes(&field.attrs) {
+            if let Ok(field_config) = MacroFieldConfig::from_attributes(&field.attrs) {
                 delta_types.push(field_config.delta_ty);
             } else {
                 return Err(syn::Error::new_spanned(
@@ -101,49 +138,64 @@ fn diff_enum(
         }
     });
 
-    // ── diff() match arms ─────────────────────────────────────────────────
-    let diff_arms = variants.iter().map(|v| {
-        let vname = &v.ident;
-        let ftypes = v.fields.iter().map(|f| f.ty.clone()).collect::<Vec<_>>();
-        let dtypes = &v.delta_types;
-        match &v.fields {
-            syn::Fields::Named(n) => {
-                let names: Vec<_> = n.named.iter().map(|f| f.ident.clone().unwrap()).collect();
-                let s_names: Vec<_> = names
-                    .iter()
-                    .map(|n| syn::Ident::new(&format!("s_{n}"), Span::call_site()))
-                    .collect();
-                let i_names: Vec<_> = names
-                    .iter()
-                    .map(|n| syn::Ident::new(&format!("i_{n}"), Span::call_site()))
-                    .collect();
-                quote! {
-                    (#ident::#vname { #(#names: #s_names),* }, #ident::#vname { #(#names: #i_names),* }) =>
-                        #delta_name::#vname {
-                            #(#names: <#ftypes as deltapatcher::Diff<#dtypes>>::diff(#s_names, #i_names)),*
-                        }
+    // ── diff() match arms (Conditional) ───────────────────────────────────
+    let diff_impl = if generate_diff {
+        let diff_arms = variants.iter().map(|v| {
+            let vname = &v.ident;
+            let ftypes = v.fields.iter().map(|f| f.ty.clone()).collect::<Vec<_>>();
+            let dtypes = &v.delta_types;
+            match &v.fields {
+                syn::Fields::Named(n) => {
+                    let names: Vec<_> = n.named.iter().map(|f| f.ident.clone().unwrap()).collect();
+                    let s_names: Vec<_> = names
+                        .iter()
+                        .map(|n| syn::Ident::new(&format!("s_{n}"), Span::call_site()))
+                        .collect();
+                    let i_names: Vec<_> = names
+                        .iter()
+                        .map(|n| syn::Ident::new(&format!("i_{n}"), Span::call_site()))
+                        .collect();
+                    quote! {
+                        (#ident::#vname { #(#names: #s_names),* }, #ident::#vname { #(#names: #i_names),* }) =>
+                            #delta_name::#vname {
+                                #(#names: <#ftypes as deltapatcher::Diff<#dtypes>>::diff(#s_names, #i_names)),*
+                            }
+                    }
+                }
+                syn::Fields::Unnamed(un) => {
+                    let count = un.unnamed.len();
+                    let s_ids: Vec<_> = (0..count)
+                        .map(|i| syn::Ident::new(&format!("s_{i}"), Span::call_site()))
+                        .collect();
+                    let i_ids: Vec<_> = (0..count)
+                        .map(|i| syn::Ident::new(&format!("i_{i}"), Span::call_site()))
+                        .collect();
+                    quote! {
+                        (#ident::#vname(#(#s_ids),*), #ident::#vname(#(#i_ids),*)) =>
+                            #delta_name::#vname(
+                                #(<#ftypes as deltapatcher::Diff<#dtypes>>::diff(#s_ids, #i_ids)),*
+                            )
+                    }
+                }
+                syn::Fields::Unit => quote! {
+                    (#ident::#vname, #ident::#vname) => #delta_name::#vname
+                },
+            }
+        });
+
+        quote! {
+            impl deltapatcher::Diff<#delta_name> for #ident {
+                fn diff(&self, initial: &Self) -> #delta_name {
+                    match (self, initial) {
+                        #(#diff_arms,)*
+                        _ => #delta_name::Replace(self.clone()),
+                    }
                 }
             }
-            syn::Fields::Unnamed(un) => {
-                let count = un.unnamed.len();
-                let s_ids: Vec<_> = (0..count)
-                    .map(|i| syn::Ident::new(&format!("s_{i}"), Span::call_site()))
-                    .collect();
-                let i_ids: Vec<_> = (0..count)
-                    .map(|i| syn::Ident::new(&format!("i_{i}"), Span::call_site()))
-                    .collect();
-                quote! {
-                    (#ident::#vname(#(#s_ids),*), #ident::#vname(#(#i_ids),*)) =>
-                        #delta_name::#vname(
-                            #(<#ftypes as deltapatcher::Diff<#dtypes>>::diff(#s_ids, #i_ids)),*
-                        )
-                }
-            }
-            syn::Fields::Unit => quote! {
-                (#ident::#vname, #ident::#vname) => #delta_name::#vname
-            },
         }
-    });
+    } else {
+        quote! {}
+    };
 
     // ── patch() match arms ────────────────────────────────────────────────
     let patch_arms = variants.iter().map(|v| {
@@ -301,26 +353,20 @@ fn diff_enum(
             }
         }
 
-        impl deltapatcher::Diff<#delta_name> for #ident {
-            fn diff(&self, initial: &Self) -> #delta_name {
-                match (self, initial) {
-                    #(#diff_arms,)*
-                    _ => #delta_name::Replace(self.clone()),
-                }
-            }
-        }
+        #diff_impl
     })
 }
 
-fn diff_struct(
+fn expand_struct(
     vis: syn::Visibility,
     ident: syn::Ident,
     s: syn::DataStruct,
-    config: DiffOverallConfig,
+    config: MacroOverallConfig,
+    generate_diff: bool,
 ) -> syn::Result<TokenStream2> {
     let mut delta_field_type = Vec::with_capacity(s.fields.len());
     for field in &s.fields {
-        if let Ok(field_config) = DiffFieldConfig::from_attributes(&field.attrs) {
+        if let Ok(field_config) = MacroFieldConfig::from_attributes(&field.attrs) {
             delta_field_type.push(field_config.delta_ty);
         } else {
             return Err(syn::Error::new_spanned(
@@ -348,6 +394,18 @@ fn diff_struct(
                 .collect::<Vec<_>>();
             let field_type = n.named.iter().map(|f| f.ty.clone()).collect::<Vec<_>>();
 
+            let diff_impl = if generate_diff {
+                quote! {
+                    impl deltapatcher::Diff<#delta_name> for #ident {
+                        fn diff(&self, initial: &Self) -> #delta_name {
+                            #delta_name {
+                                #(#field_name: <#field_type as deltapatcher::Diff<#delta_field_type>>::diff(&self.#field_name, &initial.#field_name)),*
+                            }
+                        }
+                    }
+                }
+            } else { quote! {} };
+
             quote! {
                 #[doc = #delta_doc]
                 #delta_derive
@@ -371,19 +429,23 @@ fn diff_struct(
                     }
                 }
 
-                impl deltapatcher::Diff<#delta_name> for #ident {
-                    fn diff(&self, initial: &Self) -> #delta_name {
-                        #delta_name {
-                            #(#field_name: <#field_type as deltapatcher::Diff<#delta_field_type>>::diff(&self.#field_name, &initial.#field_name)),*
-                        }
-                    }
-                }
+                #diff_impl
             }
         }
         syn::Fields::Unnamed(un) => {
             let field_vis = un.unnamed.iter().map(|field| field.vis.clone());
             let field_idx = (0..un.unnamed.len()).collect::<Vec<_>>();
             let field_type = un.unnamed.iter().map(|f| f.ty.clone()).collect::<Vec<_>>();
+
+            let diff_impl = if generate_diff {
+                quote! {
+                    impl deltapatcher::Diff<#delta_name> for #ident {
+                        fn diff(&self, initial: &Self) -> #delta_name {
+                            #delta_name (#(<#field_type as deltapatcher::Diff<#delta_field_type>>::diff(&self.#field_idx, &initial.#field_idx)),*)
+                        }
+                    }
+                }
+            } else { quote! {} };
 
             quote! {
                 #[doc = #delta_doc]
@@ -406,14 +468,18 @@ fn diff_struct(
                     }
                 }
 
-                impl deltapatcher::Diff<#delta_name> for #ident {
-                    fn diff(&self, initial: &Self) -> #delta_name {
-                        #delta_name (#(<#field_type as deltapatcher::Diff<#delta_field_type>>::diff(&self.#field_idx, &initial.#field_idx)),*)
-                    }
-                }
+                #diff_impl
             }
         }
         syn::Fields::Unit => {
+            let diff_impl = if generate_diff {
+                quote! {
+                    impl deltapatcher::Diff<#delta_name> for #ident {
+                        fn diff(&self, _initial: &Self) -> #delta_name { #delta_name }
+                    }
+                }
+            } else { quote! {} };
+
             quote! {
                 #[doc = #delta_doc]
                 #delta_derive
@@ -428,9 +494,7 @@ fn diff_struct(
                     fn patch(&mut self, _delta: &#delta_name) {}
                 }
 
-                impl deltapatcher::Diff<#delta_name> for #ident {
-                    fn diff(&self, _initial: &Self) -> #delta_name { #delta_name }
-                }
+                #diff_impl
             }
         }
     })

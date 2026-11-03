@@ -1,6 +1,6 @@
 use deltapatcher::{Diff, Patch, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
 
-// ── Struct example ────────────────────────────────────────────────────────────
+// ── Struct example (Diff & Patch) ─────────────────────────────────────────────
 
 #[derive(Diff, Debug, Clone, Copy)]
 // This top-level attribute macro is completely optional.
@@ -9,8 +9,7 @@ use deltapatcher::{Diff, Patch, Delta, delta::{ArithmeticDelta, WrappingArithmet
     // Otherwise, this would default to IVec2Delta
     delta_name = VecDelta,
 
-    // We can also specify things to derive on this
-    // generated delta type.
+    // We can also specify things to derive on this generated delta type.
     delta_derive(Debug, Clone),
 )]
 struct IVec2 {
@@ -22,9 +21,9 @@ struct IVec2 {
     y: i32,
 }
 
-// note that we can also just implement WrappingArithmetic on IVec2 and use ArithmeticDelta<IVec2> for differentiation.
-// this is because any type with WrappingArithmetic also implements Diff<ArithmeticDelta<Self>>.
-// there is currently no WrappingArithmetic derive macro.
+// Note that we can also just implement WrappingArithmetic on IVec2 and use 
+// ArithmeticDelta<IVec2> for differentiation. This is because any type with 
+// WrappingArithmetic also implements Diff<ArithmeticDelta<Self>>.
 impl WrappingArithmetic for IVec2 {
     fn wrapping_add(self, rhs: Self) -> Self {
         Self {
@@ -39,6 +38,24 @@ impl WrappingArithmetic for IVec2 {
             y: self.y.wrapping_sub(rhs.y)
         }
     }
+}
+
+// ── Patch-Only Struct example ─────────────────────────────────────────────────
+
+/// Demonstrates deriving `Patch` without `Diff`.
+/// Useful for client-side state or read-replicas that only receive updates
+/// and do not need to generate diffs themselves.
+#[derive(Patch, Debug, Clone, PartialEq)]
+#[deltapatcher(
+    delta_name = ClientStateDelta, 
+    delta_derive(Debug, Clone)
+)]
+struct ClientState {
+    #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+    score: i32,
+    
+    #[deltapatcher(delta_ty = ArithmeticDelta<u32>)]
+    level: u32,
 }
 
 // ── Enum example ──────────────────────────────────────────────────────────────
@@ -88,6 +105,23 @@ fn main() {
     dbg!(&state);
     state.patch(&delta2);
     dbg!(&state);
+
+    // ── Patch-only demo ───────────────────────────────────────────────────────
+    println!("\n── Patch-only demo ────");
+    let mut client = ClientState { score: 100, level: 1 };
+    
+    // We can manually construct a delta (or receive one over the network)
+    // Note: We don't use .diff() here on ClientState because it doesn't implement Diff!
+    // Instead, we diff the inner fields to mock an incoming update from a server.
+    let incoming_update = ClientStateDelta {
+        score: 150.diff(&client.score),
+        level: 2.diff(&client.level),
+    };
+    
+    client.patch(&incoming_update);
+    assert_eq!(client.score, 150);
+    assert_eq!(client.level, 2);
+    println!("Successfully patched ClientState: {client:?}");
 
     // ── Enum demo — same variant ──────────────────────────────────────────────
     println!("\n── Enum demo ────");

@@ -4,7 +4,7 @@
 //!
 //! - [`Patch<D>`] — implemented by types that can apply a delta `D` to mutate their state in-place.
 //! - [`Diff<D>`] — implemented by types that can produce a delta `D` relative to an initial state (requires [`Patch<D>`]).
-//! - [`Delta`] — implemented by the delta type itself; the key operation is
+//! - [`Delta`][delta::Delta] — implemented by the delta type itself; the key operation is
 //!   `aggregate`, which composes two consecutive deltas into one. An aggregated `A → C` delta
 //!   lets you reproduce the final state without ever materialising the intermediate `B`.
 //!
@@ -14,6 +14,13 @@
 //! |---|---|---|
 //! | `Vec<T>`, `[T]`, `[T; N]` | [`SliceDelta<T>`][delta::SliceDelta] | LCS-based splice diff |
 //! | `u8`, `i8`, … `u64`, `i64` | [`ArithmeticDelta<T>`][delta::ArithmeticDelta] | Wrapping addition; any type implementing [`WrappingArithmetic`][delta::WrappingArithmetic] gets this for free |
+//!
+//! # Macros
+//!
+//! When the `macros` feature is enabled, procedural macros auto-generate delta types and trait implementations for your custom structs and enums:
+//!
+//! - [`#[derive(Diff)]`][Diff] — derives both `Diff` and `Patch` for full bidirectional diffing and patching.
+//! - [`#[derive(Patch)]`][Patch] — derives only `Patch` (skipping diff generation), ideal for client-side state receivers or read-only replicas.
 //!
 //! # Timelines
 //!
@@ -38,7 +45,7 @@
 //!
 //! | Feature | Description |
 //! |---|---|
-//! | `macros` | Enables `#[derive(Diff)]` for auto-generating delta types for structs and enums |
+//! | `macros` | Enables `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros for structs and enums |
 //! | `serde` | Derives `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
 pub mod delta;
