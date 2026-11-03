@@ -16,7 +16,7 @@ Built-in implementations are provided for `Vec<T>`, slices `[T]`, fixed-size arr
 
 | Feature | Description |
 | --- | --- |
-| `macros` | Enables the `#[derive(Diff)]` proc-macro to auto-generate delta types for structs/enums composed from diffable fields |
+| `macros` | Enables the `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros to auto-generate delta types for structs/enums composed from patchable/diffable fields |
 | `serde` | Enables `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
 ## Core Concepts
@@ -65,9 +65,9 @@ This is especially useful in networking scenarios (e.g. game state sync, media s
 
 Full API details on [docs.rs](https://docs.rs/deltapatcher).
 
-## `#[derive(Diff)]` Macro
+## Deriving `Diff` and `Patch`
 
-Enable the `macros` feature to derive `Diff` and `Patch` for your own structs and enums. Each field is annotated with the delta type it should use, and the macro generates the delta struct/enum along with its `Delta`, `Patch`, and `Diff` impls.
+Enable the `macros` feature to derive `Diff` and `Patch` for your own structs and enums. Each field is annotated with the delta type it should use, and the macros generate the corresponding delta struct/enum along with its `Delta`, `Patch`, and (optionally) `Diff` implementations.
 
 ```toml
 # Cargo.toml
@@ -75,6 +75,10 @@ Enable the `macros` feature to derive `Diff` and `Patch` for your own structs an
 deltapatcher = { version = "*", features = ["macros"] }
 
 ```
+
+### Full `Diff` + `Patch` Derive
+
+Deriving `Diff` auto-generates the delta type along with `Delta`, `Patch`, and `Diff` implementations:
 
 ```rust
 use deltapatcher::{Diff, delta::ArithmeticDelta, delta::SliceDelta};
@@ -110,6 +114,25 @@ enum State {
 
 ```
 
+### `Patch`-Only Derive
+
+Use `#[derive(Patch)]` when you only need to apply incoming deltas (e.g., client-side networking or read-only replicas) without compiling diffing logic:
+
+```rust
+use deltapatcher::{Patch, delta::ArithmeticDelta};
+
+#[derive(Patch, Debug, Clone)]
+#[deltapatcher(delta_name = ClientStateDelta, delta_derive(Debug, Clone))]
+struct ClientState {
+    #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
+    score: i32,
+
+    #[deltapatcher(delta_ty = ArithmeticDelta<u32>)]
+    level: u32,
+}
+
+```
+
 Run `cargo expand` to inspect the generated code.
 
 ## Timelines
@@ -140,7 +163,7 @@ current_frame_data.patch(&inv_delta);
 
 ```
 
-See [`example/src/bin/video_stream.rs`](https://www.google.com/search?q=example/src/bin/video_stream.rs) for the full runnable version.
+See [`example/src/bin/video_stream.rs`](https://github.com/HyperCodec/deltapatcher/blob/master/example/src/bin/video_stream.rs) for the full runnable version.
 
 ## Utilities
 
@@ -190,4 +213,4 @@ just run-example video_stream
 
 ## License
 
-Licensed under either of [MIT](https://www.google.com/search?q=LICENSE-MIT) or [Apache-2.0](https://www.google.com/search?q=LICENSE-APACHE) at your option.
+Licensed under either of [MIT](https://opensource.org/license/MIT) or [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0.html) at your option.
