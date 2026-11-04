@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 //! A library for computing, composing, and applying **deltas** between states.
 //!
 //! # Core Traits
@@ -45,6 +47,7 @@
 //!
 //! | Feature | Description |
 //! |---|---|
+//! | `std` | Enabled by default, adding a dependency on the standard library. Remove this feature for `no_std` environments. |
 //! | `macros` | Enables `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros for structs and enums |
 //! | `serde` | Derives `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
@@ -56,3 +59,5 @@ pub use delta::{Delta, Diff, Patch};
 
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros as macros;
+
+extern crate alloc;

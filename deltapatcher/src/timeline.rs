@@ -1,4 +1,6 @@
-use std::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
+use core::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
+
+use alloc::{vec, vec::Vec};
 
 use crate::delta::{Delta, Diff};
 
@@ -248,7 +250,7 @@ impl<D: Delta, M> Extend<Commit<D, M>> for Timeline<D, M> {
 
 impl<D: Delta, M> IntoIterator for Timeline<D, M> {
     type Item = Commit<D, M>;
-    type IntoIter = std::vec::IntoIter<Commit<D, M>>;
+    type IntoIter = alloc::vec::IntoIter<Commit<D, M>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.commits.into_iter()
@@ -257,7 +259,7 @@ impl<D: Delta, M> IntoIterator for Timeline<D, M> {
 
 impl<'a, D: Delta, M> IntoIterator for &'a Timeline<D, M> {
     type Item = &'a Commit<D, M>;
-    type IntoIter = std::slice::Iter<'a, Commit<D, M>>;
+    type IntoIter = core::slice::Iter<'a, Commit<D, M>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.commits.iter()
@@ -608,7 +610,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::delta::{ArithmeticDelta, Patch};
+    use alloc::string::String;
+
+use crate::delta::{ArithmeticDelta, Patch};
 
     use super::*;
 

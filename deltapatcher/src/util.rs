@@ -1,6 +1,6 @@
 // TODO find a home for these things
 
-use std::ops::{Deref, DerefMut};
+use core::ops::{Deref, DerefMut};
 
 use crate::{Delta, Diff};
 

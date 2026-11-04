@@ -16,6 +16,7 @@ Built-in implementations are provided for `Vec<T>`, slices `[T]`, fixed-size arr
 
 | Feature | Description |
 | --- | --- |
+| `std` | Enabled by default, adding a dependency on the standard library. Remove this feature for `no_std` environments. |
 | `macros` | Enables the `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros to auto-generate delta types for structs/enums composed from patchable/diffable fields |
 | `serde` | Enables `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
@@ -209,7 +210,6 @@ just run-example video_stream
 * **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
 * **`#[derive(WrappingArithmetic)]`** — remove the boilerplate of implementing the trait by hand for newtype wrappers and simple structs.
 * **Async / streaming timeline** — a `StreamingTimeline` adapter that yields commits as a `Stream`, targeting networked applications that push state changes in real time.
-* **`no_std` support** — remove the hard dependency on `std` so the core traits and delta types can be used in embedded and WASM environments.
 
 ## License
 
