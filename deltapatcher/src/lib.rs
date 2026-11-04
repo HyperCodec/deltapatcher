@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 //! A library for computing, composing, and applying **deltas** between states.
 //!
 //! # Core Traits
@@ -56,3 +58,5 @@ pub use delta::{Delta, Diff, Patch};
 
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros as macros;
+
+extern crate alloc;

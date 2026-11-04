@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use alloc::{collections::{BTreeMap, VecDeque}, vec::Vec, vec};
 
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros::{Diff, Patch};
@@ -403,7 +403,7 @@ impl<T: Clone> Delta for SliceDelta<T> {
         // Step 1: express B as segments over self's own (owned) entries.
         let mut segments: VecDeque<Segment<T>> = VecDeque::new();
         let mut cursor_a = 0u32;
-        for entry in std::mem::take(&mut self.entries).into_values() {
+        for entry in core::mem::take(&mut self.entries).into_values() {
             if entry.start_index > cursor_a {
                 segments.push_back(Segment::Unchanged {
                     a_start: cursor_a,
@@ -445,7 +445,7 @@ impl<T: Clone> Delta for SliceDelta<T> {
                         let entry = SliceDeltaEntry::new(
                             next_expected_a,
                             a_start - next_expected_a,
-                            std::mem::take(&mut add_buffer),
+                            core::mem::take(&mut add_buffer),
                         );
                         new_entries.insert(entry.start_index, entry);
                     }
@@ -493,7 +493,7 @@ fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<
                         let entry = SliceDeltaEntry::new(
                             start as u32,
                             run_remove,
-                            std::mem::take(&mut run_add),
+                            core::mem::take(&mut run_add),
                         );
                         entries.insert(entry.start_index, entry);
                     }
@@ -720,7 +720,7 @@ mod tests {
     // any delta type, including ones that don't support aggregation.
     fn assert_roundtrip<T, D>(initial: T, final_: T)
     where 
-        T: Diff<D> + Clone + PartialEq + std::fmt::Debug,
+        T: Diff<D> + Clone + PartialEq + core::fmt::Debug,
     {
         let delta = final_.diff(&initial);
         let mut applied = initial.clone();
