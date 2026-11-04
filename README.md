@@ -16,6 +16,7 @@ Built-in implementations are provided for `Vec<T>`, slices `[T]`, fixed-size arr
 
 | Feature | Description |
 | --- | --- |
+| `std` | Enabled by default, adding a dependency on the standard library. Remove this feature for `no_std` environments. |
 | `macros` | Enables the `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros to auto-generate delta types for structs/enums composed from patchable/diffable fields |
 | `serde` | Enables `serde::Serialize`/`Deserialize` on all delta and timeline types |
 

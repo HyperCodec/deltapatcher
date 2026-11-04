@@ -47,6 +47,7 @@
 //!
 //! | Feature | Description |
 //! |---|---|
+//! | `std` | Enabled by default, adding a dependency on the standard library. Remove this feature for `no_std` environments. |
 //! | `macros` | Enables `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros for structs and enums |
 //! | `serde` | Derives `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
