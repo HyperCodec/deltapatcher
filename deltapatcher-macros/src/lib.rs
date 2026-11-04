@@ -427,6 +427,10 @@ fn expand_struct(
                     fn patch(&mut self, delta: &#delta_name) {
                         #(<#field_type as deltapatcher::Patch<#delta_field_type>>::patch(&mut self.#field_name, &delta.#field_name);)*
                     }
+
+                    fn patch_owned(&mut self, delta: #delta_name) {
+                        #(<#field_type as deltapatcher::Patch<#delta_field_type>>::patch_owned(&mut self.#field_name, delta.#field_name);)*
+                    }
                 }
 
                 #diff_impl
@@ -465,6 +469,10 @@ fn expand_struct(
                 impl deltapatcher::Patch<#delta_name> for #ident {
                     fn patch(&mut self, delta: &#delta_name) {
                         #(<#field_type as deltapatcher::Patch<#delta_field_type>>::patch(&mut self.#field_idx, &delta.#field_idx);)*
+                    }
+
+                    fn patch_owned(&mut self, delta: #delta_name) {
+                        #(<#field_type as deltapatcher::Patch<#delta_field_type>>::patch_owned(&mut self.#field_idx, delta.#field_idx);)*
                     }
                 }
 

@@ -94,6 +94,11 @@ pub trait Patch<D> {
     /// assert_eq!(state, after);
     /// ```
     fn patch(&mut self, delta: &D);
+
+    /// A fast path for [`patch`][Self::patch] which takes an owned value.
+    fn patch_owned(&mut self, delta: D) {
+        self.patch(&delta);
+    }
 }
 
 /// A value that encodes the change between two states and can be composed
