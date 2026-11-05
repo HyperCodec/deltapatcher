@@ -786,6 +786,28 @@ where
     }
 }
 
+#[cfg(feature = "deku")]
+impl<T, Ctx> DekuWriter<Ctx> for ArithmeticDelta<T>
+where 
+    T: WrappingArithmetic + DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write+Seek>(&self, writer: &mut Writer<W>, ctx: Ctx,) -> Result<(), DekuError> {
+        self.0.to_writer(writer, ctx)
+    }
+}
+
+#[cfg(feature = "deku")]
+impl<'a, T, Ctx> DekuReader<'a, Ctx> for ArithmeticDelta<T>
+where 
+    T: WrappingArithmetic + DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(reader: &mut Reader<R>, ctx: Ctx,) -> Result<Self, DekuError>
+    where
+        Self: Sized {
+        T::from_reader_with_ctx(reader, ctx).map(Self)
+    }
+}
+
 // arithmetic overflow is necessary for some edge cases to work properly
 pub trait WrappingArithmetic: Copy {
     fn wrapping_add(self, rhs: Self) -> Self;
