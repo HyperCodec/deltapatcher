@@ -1,6 +1,8 @@
 #[cfg(feature = "alloc")]
 use alloc::{collections::{BTreeMap, VecDeque}, vec::Vec, vec};
 
+#[cfg(feature = "deku")]
+use deku::{prelude::*, no_std_io::{Read, Write, Seek}};
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros::{Diff, Patch};
 
@@ -277,7 +279,7 @@ impl<T> SliceDelta<T> {
         }
 
         // any number of entries can touch/overlap from the right, so keep
-        // absorbing until nothing more qualifies.
+        // absorbing until nothing else qualifies.
         loop {
             let upper = self
                 .entries
@@ -296,6 +298,55 @@ impl<T> SliceDelta<T> {
         }
 
         self.entries.insert(next.start_index, next);
+    }
+}
+
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<T, Ctx> DekuWriter<Ctx> for SliceDelta<T>
+where
+    Ctx: Copy,
+    u32: DekuWriter<Ctx>,
+    SliceDeltaEntry<T>: DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Ctx,
+    ) -> Result<(), DekuError> {
+        // length prefix
+        (self.entries.len() as u32).to_writer(writer, ctx)?;
+        
+        for entry in self.entries.values() {
+            entry.to_writer(writer, ctx)?;
+        }
+        
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<'a, T, Ctx> DekuReader<'a, Ctx> for SliceDelta<T>
+where
+    Ctx: Copy,
+    u32: DekuReader<'a, Ctx>,
+    SliceDeltaEntry<T>: DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Ctx,
+    ) -> Result<Self, DekuError> {
+        // length prefix
+        let count = u32::from_reader_with_ctx(reader, ctx)? as usize;
+        
+        // realistically, a client-side reader wouldn't even need to build a B-tree,
+        // so it could avoid this overhead, but I have to implement it here for symmetry.
+        let mut entries = BTreeMap::new();
+        for _ in 0..count {
+            let entry = SliceDeltaEntry::<T>::from_reader_with_ctx(reader, ctx)?;
+            entries.insert(entry.start_index, entry);
+        }
+        
+        Ok(Self { entries })
     }
 }
 
@@ -667,6 +718,60 @@ impl<T> SliceDeltaEntry<T> {
     }
 }
 
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<T, Ctx> DekuWriter<Ctx> for SliceDeltaEntry<T>
+where
+    Ctx: Copy,
+    u32: DekuWriter<Ctx>,
+    T: DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Ctx,
+    ) -> Result<(), DekuError> {
+        self.start_index.to_writer(writer, ctx)?;
+        self.remove.to_writer(writer, ctx)?;
+    
+        (self.add.len() as u32).to_writer(writer, ctx)?;
+        
+        for item in &self.add {
+            item.to_writer(writer, ctx)?;
+        }
+        
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<'a, T, Ctx> DekuReader<'a, Ctx> for SliceDeltaEntry<T>
+where
+    Ctx: Copy,
+    u32: DekuReader<'a, Ctx>,
+    T: DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Ctx,
+    ) -> Result<Self, DekuError> {
+        let start_index = u32::from_reader_with_ctx(reader, ctx)?;
+        let remove = u32::from_reader_with_ctx(reader, ctx)?;
+        
+        let add_count = u32::from_reader_with_ctx(reader, ctx)? as usize;
+        
+        let mut add = Vec::with_capacity(add_count);
+        for _ in 0..add_count {
+            add.push(T::from_reader_with_ctx(reader, ctx)?);
+        }
+        
+        Ok(Self {
+            start_index,
+            remove,
+            add,
+        })
+    }
+}
+
 /// A delta defined by addition/subtraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -786,7 +891,7 @@ mod tests {
 
         #[test]
         fn diff_and_apply() {
-                    assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
+            assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
             assert_roundtrip(vec![1, 2, 3], vec![]);
             assert_roundtrip(vec![], vec![1, 2, 3]);
             assert_roundtrip(vec![1, 2, 3], vec![1, 2, 3]);
