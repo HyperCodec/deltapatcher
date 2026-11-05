@@ -1,5 +1,8 @@
+#[cfg(feature = "alloc")]
 use alloc::{collections::{BTreeMap, VecDeque}, vec::Vec, vec};
 
+#[cfg(feature = "deku")]
+use deku::{prelude::*, no_std_io::{Read, Write, Seek}};
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros::{Diff, Patch};
 
@@ -219,6 +222,7 @@ pub trait Delta {
 /// A delta which represents item changes in a vector or slice
 // TODO create a variant of [`SliceDelta`] for types like structs which may contain
 // large enough items to diff rather than cloning.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDelta<T> {
@@ -228,6 +232,7 @@ pub struct SliceDelta<T> {
     entries: BTreeMap<u32, SliceDeltaEntry<T>>,
 }
 
+#[cfg(feature = "alloc")]
 impl<T> Default for SliceDelta<T> {
     fn default() -> Self {
         Self {
@@ -236,6 +241,7 @@ impl<T> Default for SliceDelta<T> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T> SliceDelta<T> {
     pub fn new() -> Self {
         Self::default()
@@ -273,7 +279,7 @@ impl<T> SliceDelta<T> {
         }
 
         // any number of entries can touch/overlap from the right, so keep
-        // absorbing until nothing more qualifies.
+        // absorbing until nothing else qualifies.
         loop {
             let upper = self
                 .entries
@@ -295,9 +301,59 @@ impl<T> SliceDelta<T> {
     }
 }
 
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<T, Ctx> DekuWriter<Ctx> for SliceDelta<T>
+where
+    Ctx: Copy,
+    u32: DekuWriter<Ctx>,
+    SliceDeltaEntry<T>: DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Ctx,
+    ) -> Result<(), DekuError> {
+        // length prefix
+        (self.entries.len() as u32).to_writer(writer, ctx)?;
+        
+        for entry in self.entries.values() {
+            entry.to_writer(writer, ctx)?;
+        }
+        
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<'a, T, Ctx> DekuReader<'a, Ctx> for SliceDelta<T>
+where
+    Ctx: Copy,
+    u32: DekuReader<'a, Ctx>,
+    SliceDeltaEntry<T>: DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Ctx,
+    ) -> Result<Self, DekuError> {
+        // length prefix
+        let count = u32::from_reader_with_ctx(reader, ctx)? as usize;
+        
+        // realistically, a client-side reader wouldn't even need to build a B-tree,
+        // so it could avoid this overhead, but I have to implement it here for symmetry.
+        let mut entries = BTreeMap::new();
+        for _ in 0..count {
+            let entry = SliceDeltaEntry::<T>::from_reader_with_ctx(reader, ctx)?;
+            entries.insert(entry.start_index, entry);
+        }
+        
+        Ok(Self { entries })
+    }
+}
+
 /// Merges two entries known to be touching or overlapping, with `a` sorted
 /// before `b` (`a.start_index <= b.start_index`). See [`SliceDelta::aggregate_entry`]
 /// for the semantics when they genuinely overlap.
+#[cfg(feature = "alloc")]
 fn merge_two<T>(a: SliceDeltaEntry<T>, b: SliceDeltaEntry<T>) -> SliceDeltaEntry<T> {
     debug_assert!(a.start_index <= b.start_index);
     let start = a.start_index;
@@ -316,6 +372,7 @@ fn merge_two<T>(a: SliceDeltaEntry<T>, b: SliceDeltaEntry<T>) -> SliceDeltaEntry
 /// the pre-delta vector (identified by its range there), or a run of items
 /// that were literally inserted and therefore don't exist in the pre-delta
 /// vector at all.
+#[cfg(feature = "alloc")]
 enum Segment<T> {
     /// `a_end == None` means "extends to the end of the vector" — this lets
     /// us represent the untouched tail without ever knowing the vector's
@@ -324,6 +381,7 @@ enum Segment<T> {
     Added(Vec<T>),
 }
 
+#[cfg(feature = "alloc")]
 impl<T> Segment<T> {
     fn len(&self) -> Option<u32> {
         match self {
@@ -335,6 +393,7 @@ impl<T> Segment<T> {
 
 /// Discards exactly `want` B-space positions from the front of `segments`,
 /// splitting the boundary segment if needed.
+#[cfg(feature = "alloc")]
 fn take_front<T: Clone>(segments: &mut VecDeque<Segment<T>>, mut want: u32) {
     while want > 0 {
         let seg = segments
@@ -361,6 +420,7 @@ fn take_front<T: Clone>(segments: &mut VecDeque<Segment<T>>, mut want: u32) {
 /// Moves exactly `want` B-space positions' worth of segments from the front
 /// of `segments` onto the back of `output`, splitting the boundary segment
 /// if needed.
+#[cfg(feature = "alloc")]
 fn advance_to<T: Clone>(segments: &mut VecDeque<Segment<T>>, output: &mut Vec<Segment<T>>, mut want: u32) {
     while want > 0 {
         let avail = segments
@@ -394,6 +454,7 @@ fn advance_to<T: Clone>(segments: &mut VecDeque<Segment<T>>, output: &mut Vec<Se
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone> Delta for SliceDelta<T> {
     fn aggregate(&mut self, next: &Self) {
         self.aggregate_owned(next.clone());
@@ -463,6 +524,7 @@ impl<T: Clone> Delta for SliceDelta<T> {
 /// `Vec<T>` and `[T]` [`Diff`] impls — diffing itself doesn't
 /// care whether the result will later be applied to a resizable or
 /// fixed-size container; only `patch` differs between them.
+#[cfg(feature = "alloc")]
 fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<T> {
     let n = initial.len();
     let m = final_.len();
@@ -531,12 +593,14 @@ fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<
     SliceDelta { entries }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for Vec<T> {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         for entry in delta.entries.values().rev() {
@@ -548,12 +612,14 @@ impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for [T] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq> Patch<SliceDelta<T>> for [T] {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         let mut buffer: Vec<T> = Vec::with_capacity(self.len());
@@ -577,12 +643,14 @@ impl<T: Clone + PartialEq> Patch<SliceDelta<T>> for [T] {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq, const N: usize> Diff<SliceDelta<T>> for [T; N] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         <[T] as Diff<SliceDelta<T>>>::diff(self, initial)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq, const N: usize> Patch<SliceDelta<T>> for [T; N] {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         <[T]>::patch(self, delta)
@@ -590,6 +658,7 @@ impl<T: Clone + PartialEq, const N: usize> Patch<SliceDelta<T>> for [T; N] {
 }
 
 /// A splicing entry in the delta
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDeltaEntry<T> {
@@ -604,6 +673,7 @@ pub struct SliceDeltaEntry<T> {
     add: Vec<T>,
 }
 
+#[cfg(feature = "alloc")]
 impl<T> SliceDeltaEntry<T> {
     pub fn new(start_index: u32, remove: u32, add: Vec<T>) -> Self {
         assert!(remove != 0 || !add.is_empty());
@@ -648,6 +718,60 @@ impl<T> SliceDeltaEntry<T> {
     }
 }
 
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<T, Ctx> DekuWriter<Ctx> for SliceDeltaEntry<T>
+where
+    Ctx: Copy,
+    u32: DekuWriter<Ctx>,
+    T: DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write + Seek>(
+        &self,
+        writer: &mut Writer<W>,
+        ctx: Ctx,
+    ) -> Result<(), DekuError> {
+        self.start_index.to_writer(writer, ctx)?;
+        self.remove.to_writer(writer, ctx)?;
+    
+        (self.add.len() as u32).to_writer(writer, ctx)?;
+        
+        for item in &self.add {
+            item.to_writer(writer, ctx)?;
+        }
+        
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "alloc", feature = "deku"))]
+impl<'a, T, Ctx> DekuReader<'a, Ctx> for SliceDeltaEntry<T>
+where
+    Ctx: Copy,
+    u32: DekuReader<'a, Ctx>,
+    T: DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(
+        reader: &mut Reader<R>,
+        ctx: Ctx,
+    ) -> Result<Self, DekuError> {
+        let start_index = u32::from_reader_with_ctx(reader, ctx)?;
+        let remove = u32::from_reader_with_ctx(reader, ctx)?;
+        
+        let add_count = u32::from_reader_with_ctx(reader, ctx)? as usize;
+        
+        let mut add = Vec::with_capacity(add_count);
+        for _ in 0..add_count {
+            add.push(T::from_reader_with_ctx(reader, ctx)?);
+        }
+        
+        Ok(Self {
+            start_index,
+            remove,
+            add,
+        })
+    }
+}
+
 /// A delta defined by addition/subtraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -659,6 +783,28 @@ where
 {
     fn aggregate(&mut self, next: &Self) {
         self.0 = self.0.wrapping_add(next.0);
+    }
+}
+
+#[cfg(feature = "deku")]
+impl<T, Ctx> DekuWriter<Ctx> for ArithmeticDelta<T>
+where 
+    T: WrappingArithmetic + DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write+Seek>(&self, writer: &mut Writer<W>, ctx: Ctx,) -> Result<(), DekuError> {
+        self.0.to_writer(writer, ctx)
+    }
+}
+
+#[cfg(feature = "deku")]
+impl<'a, T, Ctx> DekuReader<'a, Ctx> for ArithmeticDelta<T>
+where 
+    T: WrappingArithmetic + DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(reader: &mut Reader<R>, ctx: Ctx,) -> Result<Self, DekuError>
+    where
+        Self: Sized {
+        T::from_reader_with_ctx(reader, ctx).map(Self)
     }
 }
 
@@ -760,13 +906,14 @@ mod tests {
             assert_roundtrip::<bool, Flip>(false, false);
         }
     }
-    
+
+    #[cfg(feature = "alloc")]
     mod slice {
         use super::*;
 
         #[test]
         fn diff_and_apply() {
-                    assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
+            assert_roundtrip(vec![1, 2, 3, 4], vec![1, 5, 3, 6, 4]);
             assert_roundtrip(vec![1, 2, 3], vec![]);
             assert_roundtrip(vec![], vec![1, 2, 3]);
             assert_roundtrip(vec![1, 2, 3], vec![1, 2, 3]);
@@ -1016,6 +1163,115 @@ mod tests {
             let mut result = a.clone();
             result.patch(&d1);
             assert_eq!(result, c);
+        }
+    }
+
+    #[cfg(feature = "deku")]
+    mod deku_tests {
+        use super::*;
+        use deku::ctx::Endian;
+        use deku::reader::Reader;
+        use deku::writer::Writer;
+        use std::io::Cursor;
+
+        #[test]
+        fn test_arithmetic_delta_endianness() {
+            let delta = ArithmeticDelta(0x12345678_u32);
+
+            // Test Big Endian serialization
+            let mut buf_be = vec![];
+            let mut writer_be = Writer::new(Cursor::new(&mut buf_be));
+            delta.to_writer(&mut writer_be, Endian::Big).unwrap();
+            
+            assert_eq!(buf_be, vec![0x12, 0x34, 0x56, 0x78]);
+
+            // Test Big Endian deserialization
+            let mut reader_be = Reader::new(Cursor::new(buf_be.as_slice()));
+            let decoded_be = ArithmeticDelta::<u32>::from_reader_with_ctx(&mut reader_be, Endian::Big).unwrap();
+            
+            assert_eq!(delta, decoded_be);
+
+            // Test Little Endian serialization
+            let mut buf_le = vec![];
+            let mut writer_le = Writer::new(Cursor::new(&mut buf_le));
+            delta.to_writer(&mut writer_le, Endian::Little).unwrap();
+            
+            assert_eq!(buf_le, vec![0x78, 0x56, 0x34, 0x12]);
+
+            // Test Little Endian deserialization
+            let mut reader_le = Reader::new(Cursor::new(buf_le.as_slice()));
+            let decoded_le = ArithmeticDelta::<u32>::from_reader_with_ctx(&mut reader_le, Endian::Little).unwrap();
+            
+            assert_eq!(delta, decoded_le);
+        }
+
+        #[cfg(feature = "alloc")]
+        #[test]
+        fn test_slice_delta_serialization_format() {
+            let mut delta = SliceDelta::<u16>::new();
+            
+            // Entry 1: start: 1, remove: 2, add: [0xAAAA, 0xBBBB]
+            delta.aggregate_entry(SliceDeltaEntry::new(1, 2, vec![0xAAAA, 0xBBBB]));
+            // Entry 2: start: 5, remove: 0, add: [0xCCCC]
+            delta.aggregate_entry(SliceDeltaEntry::new(5, 0, vec![0xCCCC]));
+
+            let mut buf = vec![];
+            let mut writer = Writer::new(Cursor::new(&mut buf));
+            
+            // Write out using Little Endian
+            delta.to_writer(&mut writer, Endian::Little).unwrap();
+
+            // Expected byte structure (Little Endian):
+            // SliceDelta count: 2 (u32) -> [2, 0, 0, 0]
+            // Entry 1:
+            //   start_index: 1 -> [1, 0, 0, 0]
+            //   remove: 2      -> [2, 0, 0, 0]
+            //   add_len: 2     -> [2, 0, 0, 0]
+            //   add[0]: 0xAAAA -> [0xAA, 0xAA]
+            //   add[1]: 0xBBBB -> [0xBB, 0xBB]
+            // Entry 2:
+            //   start_index: 5 -> [5, 0, 0, 0]
+            //   remove: 0      -> [0, 0, 0, 0]
+            //   add_len: 1     -> [1, 0, 0, 0]
+            //   add[0]: 0xCCCC -> [0xCC, 0xCC]
+            let expected_bytes = vec![
+                2, 0, 0, 0, // 2 entries
+                1, 0, 0, 0, // entry 1 start
+                2, 0, 0, 0, // entry 1 remove
+                2, 0, 0, 0, // entry 1 add len
+                0xAA, 0xAA, // 0xAAAA (Little Endian)
+                0xBB, 0xBB, // 0xBBBB (Little Endian)
+                5, 0, 0, 0, // entry 2 start
+                0, 0, 0, 0, // entry 2 remove
+                1, 0, 0, 0, // entry 2 add len
+                0xCC, 0xCC, // 0xCCCC (Little Endian)
+            ];
+            
+            assert_eq!(buf, expected_bytes);
+        }
+
+        #[cfg(feature = "alloc")]
+        #[test]
+        fn test_slice_delta_roundtrip() {
+            let mut delta = SliceDelta::<i32>::new();
+            delta.aggregate_entry(SliceDeltaEntry::new(0, 5, vec![1, 2, 3]));
+            delta.aggregate_entry(SliceDeltaEntry::new(10, 0, vec![99, 100]));
+
+            // Serialize
+            let mut buf = vec![];
+            let mut writer = Writer::new(Cursor::new(&mut buf));
+            delta.to_writer(&mut writer, Endian::Big).unwrap();
+
+            // Deserialize
+            let mut reader = Reader::new(Cursor::new(buf.as_slice()));
+            let decoded = SliceDelta::<i32>::from_reader_with_ctx(&mut reader, Endian::Big).unwrap();
+
+            // Assert exact structural equality
+            assert_eq!(delta.entries.len(), decoded.entries.len());
+            for (key, original_entry) in &delta.entries {
+                let decoded_entry = decoded.entries.get(key).unwrap();
+                assert_eq!(original_entry, decoded_entry);
+            }
         }
     }
 }

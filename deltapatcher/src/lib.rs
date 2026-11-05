@@ -48,16 +48,20 @@
 //! | Feature | Description |
 //! |---|---|
 //! | `std` | Enabled by default, adding a dependency on the standard library. Remove this feature for `no_std` environments. |
+//! | `alloc` | Enabled by default, linking the `alloc` crate. This is required for timelines and allocating deltas such as `SliceDelta`.
 //! | `macros` | Enables `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros for structs and enums |
 //! | `serde` | Derives `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
 pub mod delta;
-pub mod timeline;
 pub mod util;
+
+#[cfg(feature = "alloc")]
+pub mod timeline;
 
 pub use delta::{Delta, Diff, Patch};
 
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros as macros;
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
