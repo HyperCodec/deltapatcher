@@ -1165,4 +1165,113 @@ mod tests {
             assert_eq!(result, c);
         }
     }
+
+    #[cfg(feature = "deku")]
+    mod deku_tests {
+        use super::*;
+        use deku::ctx::Endian;
+        use deku::reader::Reader;
+        use deku::writer::Writer;
+        use std::io::Cursor;
+
+        #[test]
+        fn test_arithmetic_delta_endianness() {
+            let delta = ArithmeticDelta(0x12345678_u32);
+
+            // Test Big Endian serialization
+            let mut buf_be = vec![];
+            let mut writer_be = Writer::new(Cursor::new(&mut buf_be));
+            delta.to_writer(&mut writer_be, Endian::Big).unwrap();
+            
+            assert_eq!(buf_be, vec![0x12, 0x34, 0x56, 0x78]);
+
+            // Test Big Endian deserialization
+            let mut reader_be = Reader::new(Cursor::new(buf_be.as_slice()));
+            let decoded_be = ArithmeticDelta::<u32>::from_reader_with_ctx(&mut reader_be, Endian::Big).unwrap();
+            
+            assert_eq!(delta, decoded_be);
+
+            // Test Little Endian serialization
+            let mut buf_le = vec![];
+            let mut writer_le = Writer::new(Cursor::new(&mut buf_le));
+            delta.to_writer(&mut writer_le, Endian::Little).unwrap();
+            
+            assert_eq!(buf_le, vec![0x78, 0x56, 0x34, 0x12]);
+
+            // Test Little Endian deserialization
+            let mut reader_le = Reader::new(Cursor::new(buf_le.as_slice()));
+            let decoded_le = ArithmeticDelta::<u32>::from_reader_with_ctx(&mut reader_le, Endian::Little).unwrap();
+            
+            assert_eq!(delta, decoded_le);
+        }
+
+        #[cfg(feature = "alloc")]
+        #[test]
+        fn test_slice_delta_serialization_format() {
+            let mut delta = SliceDelta::<u16>::new();
+            
+            // Entry 1: start: 1, remove: 2, add: [0xAAAA, 0xBBBB]
+            delta.aggregate_entry(SliceDeltaEntry::new(1, 2, vec![0xAAAA, 0xBBBB]));
+            // Entry 2: start: 5, remove: 0, add: [0xCCCC]
+            delta.aggregate_entry(SliceDeltaEntry::new(5, 0, vec![0xCCCC]));
+
+            let mut buf = vec![];
+            let mut writer = Writer::new(Cursor::new(&mut buf));
+            
+            // Write out using Little Endian
+            delta.to_writer(&mut writer, Endian::Little).unwrap();
+
+            // Expected byte structure (Little Endian):
+            // SliceDelta count: 2 (u32) -> [2, 0, 0, 0]
+            // Entry 1:
+            //   start_index: 1 -> [1, 0, 0, 0]
+            //   remove: 2      -> [2, 0, 0, 0]
+            //   add_len: 2     -> [2, 0, 0, 0]
+            //   add[0]: 0xAAAA -> [0xAA, 0xAA]
+            //   add[1]: 0xBBBB -> [0xBB, 0xBB]
+            // Entry 2:
+            //   start_index: 5 -> [5, 0, 0, 0]
+            //   remove: 0      -> [0, 0, 0, 0]
+            //   add_len: 1     -> [1, 0, 0, 0]
+            //   add[0]: 0xCCCC -> [0xCC, 0xCC]
+            let expected_bytes = vec![
+                2, 0, 0, 0, // 2 entries
+                1, 0, 0, 0, // entry 1 start
+                2, 0, 0, 0, // entry 1 remove
+                2, 0, 0, 0, // entry 1 add len
+                0xAA, 0xAA, // 0xAAAA (Little Endian)
+                0xBB, 0xBB, // 0xBBBB (Little Endian)
+                5, 0, 0, 0, // entry 2 start
+                0, 0, 0, 0, // entry 2 remove
+                1, 0, 0, 0, // entry 2 add len
+                0xCC, 0xCC, // 0xCCCC (Little Endian)
+            ];
+            
+            assert_eq!(buf, expected_bytes);
+        }
+
+        #[cfg(feature = "alloc")]
+        #[test]
+        fn test_slice_delta_roundtrip() {
+            let mut delta = SliceDelta::<i32>::new();
+            delta.aggregate_entry(SliceDeltaEntry::new(0, 5, vec![1, 2, 3]));
+            delta.aggregate_entry(SliceDeltaEntry::new(10, 0, vec![99, 100]));
+
+            // Serialize
+            let mut buf = vec![];
+            let mut writer = Writer::new(Cursor::new(&mut buf));
+            delta.to_writer(&mut writer, Endian::Big).unwrap();
+
+            // Deserialize
+            let mut reader = Reader::new(Cursor::new(buf.as_slice()));
+            let decoded = SliceDelta::<i32>::from_reader_with_ctx(&mut reader, Endian::Big).unwrap();
+
+            // Assert exact structural equality
+            assert_eq!(delta.entries.len(), decoded.entries.len());
+            for (key, original_entry) in &delta.entries {
+                let decoded_entry = decoded.entries.get(key).unwrap();
+                assert_eq!(original_entry, decoded_entry);
+            }
+        }
+    }
 }
