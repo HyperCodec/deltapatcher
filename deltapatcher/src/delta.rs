@@ -1,3 +1,4 @@
+#[cfg(feature = "alloc")]
 use alloc::{collections::{BTreeMap, VecDeque}, vec::Vec, vec};
 
 #[cfg(feature = "macros")]
@@ -219,6 +220,7 @@ pub trait Delta {
 /// A delta which represents item changes in a vector or slice
 // TODO create a variant of [`SliceDelta`] for types like structs which may contain
 // large enough items to diff rather than cloning.
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDelta<T> {
@@ -228,6 +230,7 @@ pub struct SliceDelta<T> {
     entries: BTreeMap<u32, SliceDeltaEntry<T>>,
 }
 
+#[cfg(feature = "alloc")]
 impl<T> Default for SliceDelta<T> {
     fn default() -> Self {
         Self {
@@ -236,6 +239,7 @@ impl<T> Default for SliceDelta<T> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T> SliceDelta<T> {
     pub fn new() -> Self {
         Self::default()
@@ -298,6 +302,7 @@ impl<T> SliceDelta<T> {
 /// Merges two entries known to be touching or overlapping, with `a` sorted
 /// before `b` (`a.start_index <= b.start_index`). See [`SliceDelta::aggregate_entry`]
 /// for the semantics when they genuinely overlap.
+#[cfg(feature = "alloc")]
 fn merge_two<T>(a: SliceDeltaEntry<T>, b: SliceDeltaEntry<T>) -> SliceDeltaEntry<T> {
     debug_assert!(a.start_index <= b.start_index);
     let start = a.start_index;
@@ -316,6 +321,7 @@ fn merge_two<T>(a: SliceDeltaEntry<T>, b: SliceDeltaEntry<T>) -> SliceDeltaEntry
 /// the pre-delta vector (identified by its range there), or a run of items
 /// that were literally inserted and therefore don't exist in the pre-delta
 /// vector at all.
+#[cfg(feature = "alloc")]
 enum Segment<T> {
     /// `a_end == None` means "extends to the end of the vector" — this lets
     /// us represent the untouched tail without ever knowing the vector's
@@ -324,6 +330,7 @@ enum Segment<T> {
     Added(Vec<T>),
 }
 
+#[cfg(feature = "alloc")]
 impl<T> Segment<T> {
     fn len(&self) -> Option<u32> {
         match self {
@@ -335,6 +342,7 @@ impl<T> Segment<T> {
 
 /// Discards exactly `want` B-space positions from the front of `segments`,
 /// splitting the boundary segment if needed.
+#[cfg(feature = "alloc")]
 fn take_front<T: Clone>(segments: &mut VecDeque<Segment<T>>, mut want: u32) {
     while want > 0 {
         let seg = segments
@@ -361,6 +369,7 @@ fn take_front<T: Clone>(segments: &mut VecDeque<Segment<T>>, mut want: u32) {
 /// Moves exactly `want` B-space positions' worth of segments from the front
 /// of `segments` onto the back of `output`, splitting the boundary segment
 /// if needed.
+#[cfg(feature = "alloc")]
 fn advance_to<T: Clone>(segments: &mut VecDeque<Segment<T>>, output: &mut Vec<Segment<T>>, mut want: u32) {
     while want > 0 {
         let avail = segments
@@ -394,6 +403,7 @@ fn advance_to<T: Clone>(segments: &mut VecDeque<Segment<T>>, output: &mut Vec<Se
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone> Delta for SliceDelta<T> {
     fn aggregate(&mut self, next: &Self) {
         self.aggregate_owned(next.clone());
@@ -463,6 +473,7 @@ impl<T: Clone> Delta for SliceDelta<T> {
 /// `Vec<T>` and `[T]` [`Diff`] impls — diffing itself doesn't
 /// care whether the result will later be applied to a resizable or
 /// fixed-size container; only `patch` differs between them.
+#[cfg(feature = "alloc")]
 fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<T> {
     let n = initial.len();
     let m = final_.len();
@@ -531,12 +542,14 @@ fn diff_slices<T: Clone + PartialEq>(initial: &[T], final_: &[T]) -> SliceDelta<
     SliceDelta { entries }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for Vec<T> {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         for entry in delta.entries.values().rev() {
@@ -548,12 +561,14 @@ impl<T: Clone> Patch<SliceDelta<T>> for Vec<T> {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq> Diff<SliceDelta<T>> for [T] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         diff_slices(initial, self)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq> Patch<SliceDelta<T>> for [T] {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         let mut buffer: Vec<T> = Vec::with_capacity(self.len());
@@ -577,12 +592,14 @@ impl<T: Clone + PartialEq> Patch<SliceDelta<T>> for [T] {
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq, const N: usize> Diff<SliceDelta<T>> for [T; N] {
     fn diff(&self, initial: &Self) -> SliceDelta<T> {
         <[T] as Diff<SliceDelta<T>>>::diff(self, initial)
     }
 }
 
+#[cfg(feature = "alloc")]
 impl<T: Clone + PartialEq, const N: usize> Patch<SliceDelta<T>> for [T; N] {
     fn patch(&mut self, delta: &SliceDelta<T>) {
         <[T]>::patch(self, delta)
@@ -590,6 +607,7 @@ impl<T: Clone + PartialEq, const N: usize> Patch<SliceDelta<T>> for [T; N] {
 }
 
 /// A splicing entry in the delta
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SliceDeltaEntry<T> {
@@ -604,6 +622,7 @@ pub struct SliceDeltaEntry<T> {
     add: Vec<T>,
 }
 
+#[cfg(feature = "alloc")]
 impl<T> SliceDeltaEntry<T> {
     pub fn new(start_index: u32, remove: u32, add: Vec<T>) -> Self {
         assert!(remove != 0 || !add.is_empty());
@@ -760,7 +779,8 @@ mod tests {
             assert_roundtrip::<bool, Flip>(false, false);
         }
     }
-    
+
+    #[cfg(feature = "alloc")]
     mod slice {
         use super::*;
 

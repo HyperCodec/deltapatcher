@@ -14,11 +14,14 @@ categories = ["data-structures", "algorithms"]
 publish = true
 
 [dependencies]
+deku = { version = "0.20.3", optional = true }
 deltapatcher-macros = { workspace = true, optional = true }
 serde = { version = "1.0.229", features = ["derive"], optional = true }
 
 [features]
-default = ["std"]
-std = []
+default = ["std", "macros"]
+alloc = []
+std = ["alloc"]
 serde = ["dep:serde"]
 macros = ["dep:deltapatcher-macros"]
+deku = ["dep:deku"]
