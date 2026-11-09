@@ -1,10 +1,12 @@
 use core::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
 
 use alloc::{vec, vec::Vec};
+#[cfg(feature = "deku")]
+use deku::{ctx::{Endian, Limit}, no_std_io::{Read, Seek, Write}, prelude::*};
 
 use crate::delta::{Delta, Diff};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Commit<D: Delta, M> {
     delta: D,
@@ -45,12 +47,44 @@ impl<D: Delta, M> Deref for Commit<D, M> {
     }
 }
 
+#[cfg(feature = "deku")]
+impl<D, M, Ctx1, Ctx2> DekuWriter<(Ctx1, Ctx2)> for Commit<D, M>
+where 
+    D: Delta + DekuWriter<Ctx1>,
+    M: DekuWriter<Ctx2>,
+{
+    fn to_writer<W: Write + Seek>(&self, writer: &mut Writer<W>, (ctx1, ctx2): (Ctx1, Ctx2)) -> Result<(), DekuError> {
+        self.delta.to_writer(writer, ctx1)?;
+        self.meta.to_writer(writer, ctx2)
+    }
+}
+
+#[cfg(feature = "deku")]
+impl<'a, D, M, Ctx1, Ctx2> DekuReader<'a, (Ctx1, Ctx2)> for Commit<D, M>
+where 
+    D: Delta + DekuReader<'a, Ctx1>,
+    M: DekuReader<'a, Ctx2>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(reader: &mut Reader<R>, (ctx1, ctx2): (Ctx1, Ctx2),) -> Result<Self, DekuError>
+    where
+        Self: Sized
+    {
+        let delta = D::from_reader_with_ctx(reader, ctx1)?;
+        let meta = M::from_reader_with_ctx(reader, ctx2)?;
+
+        Ok(Self {
+            delta,
+            meta
+        })
+    }
+}
+
 // we can think of a timeline as a singly linked list
 // where the nodes are states and the pointers are commits.
 // the time complexities are very similar in that we have to
 // traverse the list to get nodes rather than immediately fetching
 // them like from a contiguous array.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Timeline<D: Delta, M = ()> {
     commits: Vec<Commit<D, M>>,
@@ -279,22 +313,58 @@ impl<D: Delta + Clone, M: Clone> Delta for Timeline<D, M> {
     }
 }
 
-// impl<T, D> Differentiable<Timeline<D, ()>> for T
-// where 
-//     T: Differentiable<D>,
-//     D: Delta + Clone,
-// {
-//     fn diff(&self, initial: &Self) -> Timeline<D, ()> {
-//         let delta = self.diff(initial);
-//         let mut t = Timeline::new();
-//         t.push(Commit::new(delta, ()));
-//         t
-//     }
+#[cfg(feature = "deku")]
+impl<D, M, Ctx> DekuWriter<Ctx> for Timeline<D, M>
+where 
+    Ctx: Copy,
+    D: Delta,
+    Commit<D, M>: DekuWriter<Ctx>,
+{
+    fn to_writer<W: Write + Seek>(&self, writer: &mut Writer<W>, ctx: Ctx) -> Result<(), DekuError> {
+        write_commits(&self.commits, writer, ctx)
+    }
+}
 
-//     fn patch(&mut self, t: &Timeline<D, ()>) {
-//         t.build_state(self, ..);
-//     }
-// }
+#[cfg(feature = "deku")]
+impl<'a, D, M, Ctx> DekuReader<'a, Ctx> for Timeline<D, M>
+where 
+    Ctx: Copy,
+    D: Delta,
+    Commit<D, M>: DekuReader<'a, Ctx>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(reader: &mut Reader<R>, ctx: Ctx) -> Result<Self, DekuError>
+    where
+        Self: Sized {
+        let commits = read_commits(reader, ctx)?;
+        Ok(Self {
+            commits
+        })
+    }
+}
+
+#[cfg(feature = "deku")]
+fn write_commits<W, D, M, Ctx>(commits: &[Commit<D, M>], writer: &mut Writer<W>, ctx: Ctx) -> Result<(), DekuError>
+where 
+    W: Write + Seek,
+    Ctx: Copy,
+    D: Delta,
+    Commit<D, M>: DekuWriter<Ctx>,
+{
+    (commits.len() as u64).to_writer(writer, Endian::Big)?;
+    commits.to_writer(writer, ctx)
+}
+
+#[cfg(feature = "deku")]
+fn read_commits<'a, R, D, M, Ctx>(reader: &mut Reader<R>, ctx: Ctx) -> Result<Vec<Commit<D, M>>, DekuError>
+where 
+    R: Read + Seek,
+    Ctx: Copy,
+    D: Delta,
+    Commit<D, M>: DekuReader<'a, Ctx>,
+{
+    let len = u64::from_reader_with_ctx(reader, Endian::Big)?;
+    Vec::<Commit<D, M>>::from_reader_with_ctx(reader, (Limit::new_count(len as usize), ctx))
+}
 
 /// Replays `timeline` against `initial_state`, producing the cache-state
 /// vector for it. Shared between [`StateCachedTimeline::from_timeline`]
@@ -338,7 +408,7 @@ where
 /// - The cache may have up to one "hanging" entry beyond what's strictly
 ///   required: a cached state may map to `timeline.len()` itself (the
 ///   current/latest state), even though no commit exists there yet.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateCachedTimeline<T, D, M = ()>
 where
@@ -569,6 +639,12 @@ where
 
         Some(state_to.diff(&state_from))
     }
+
+    /// Whether there is a hanging (final) state
+    /// in the cache.
+    fn has_hanging(&self) -> bool {
+        self.states.len() > self.timeline.len() / self.state_cache_interval
+    }
 }
 
 impl<T, D, M> Extend<Commit<D, M>> for StateCachedTimeline<T, D, M>
@@ -605,6 +681,103 @@ where
 
     fn deref(&self) -> &Self::Target {
         &self.timeline
+    }
+}
+
+/// A context type used in [`StateCachedTimeline`]'s `deku` implementation.
+/// Dictates whether the cache will be serialized/deserialized along with everything else,
+/// or ommitted and regenerated.
+#[cfg(feature = "deku")]
+#[derive(Debug, Clone, Copy, Default)]
+pub enum IncludeCache {
+    /// Include just the raw [`Timeline`] in deku serialization/deserialization.
+    TimelineOnly,
+    /// Include both the state cache and commits in deku serialization/deserialization.
+    #[default]
+    CacheAndTimeline
+}
+
+#[cfg(feature = "deku")]
+impl<T, D, M, Ctx1, Ctx2> DekuWriter<(IncludeCache, Ctx1, Ctx2)> for StateCachedTimeline<T, D, M>
+where 
+    Ctx1: Copy,
+    Ctx2: Copy,
+    T: Diff<D> + Clone + DekuWriter<Ctx2>,
+    D: Delta,
+    Commit<D, M>: DekuWriter<Ctx1>,
+{
+    fn to_writer<W: Write + Seek>(&self, writer: &mut Writer<W>, (include_cache, ctx1, ctx2): (IncludeCache, Ctx1, Ctx2)) -> Result<(), DekuError> {
+        self.timeline.to_writer(writer, ctx1)?;
+        (self.state_cache_interval as u64).to_writer(writer, Endian::Big)?;
+
+        match include_cache {
+            IncludeCache::TimelineOnly => {
+                // initial state. always valid to index at 0 due to the inveriants of this data structure.
+                self.states[0].to_writer(writer, ctx2)?;
+            },
+            IncludeCache::CacheAndTimeline => {
+                // don't need to write the length of the vector because it
+                // can be calculated from the interval and existing length.
+                // however, we need to tell the receiver whether there was an additional hanging state.
+                self.has_hanging().to_writer(writer, ())?;
+                self.states.to_writer(writer, ctx2)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+// rust compiler doesn't like this impl :(
+// need to settle for something less generic.
+// it's possible with a newtype with phantomdata, but i don't think that's worth it.
+//
+// #[cfg(feature = "deku")]
+// impl<T, D, M, Ctx1, Ctx2> DekuWriter<()> for StateCachedTimeline<T, D, M>
+// where 
+//     Ctx1: Copy + Default,
+//     Ctx2: Copy + Default,
+//     T: Diff<D> + Clone + DekuWriter<Ctx2>,
+//     D: Delta,
+//     Commit<D, M>: DekuWriter<Ctx1>
+// {
+//     fn to_writer<W: Write + Seek>(&self, writer: &mut Writer<W>, _: (),) -> Result<(), DekuError> {
+//         self.to_writer(writer, (IncludeCache::default(), Ctx1::default(), Ctx2::default()))
+//     }
+// }
+
+#[cfg(feature = "deku")]
+impl<'a, T, D, M, Ctx1, Ctx2> DekuReader<'a, (IncludeCache, Ctx1, Ctx2)> for StateCachedTimeline<T, D, M>
+where 
+    Ctx1: Copy,
+    Ctx2: Copy,
+    T: Diff<D> + Clone + DekuReader<'a, Ctx2>,
+    D: Delta,
+    Commit<D, M>: DekuReader<'a, Ctx1>,
+{
+    fn from_reader_with_ctx<R: Read + Seek>(reader: &mut Reader<R>, (include_cache, ctx1, ctx2): (IncludeCache, Ctx1, Ctx2)) -> Result<Self, DekuError>
+    where
+        Self: Sized
+    {
+        let timeline = Timeline::from_reader_with_ctx(reader, ctx1)?;
+        let state_cache_interval = u64::from_reader_with_ctx(reader, Endian::Big)? as usize;
+
+        match include_cache {
+            IncludeCache::TimelineOnly => {
+                let initial_state = T::from_reader_with_ctx(reader, ctx2)?;
+                Ok(Self::from_timeline(state_cache_interval, timeline, initial_state))
+            },
+            IncludeCache::CacheAndTimeline => {
+                let has_hanging: bool = bool::from_reader_with_ctx(reader, ())?;
+                let states_len = timeline.len() / state_cache_interval + has_hanging as usize;
+                let states = Vec::<T>::from_reader_with_ctx(reader, (Limit::new_count(states_len), ctx2))?;
+                Ok(Self {
+                    timeline,
+                    state_cache_interval,
+                    states
+                })
+            }
+        }
     }
 }
 
@@ -1057,5 +1230,108 @@ use crate::delta::{ArithmeticDelta, Patch};
         // Out of bounds bounds check
         assert_eq!(sct.delta_between(0, 10), None);
         assert_eq!(sct.delta_between(10, 0), None);
+    }
+
+    #[cfg(test)]
+    mod deku_tests {
+        use super::*; // Make sure this imports Commit, Timeline, StateCachedTimeline, ArithmeticDelta, IncludeCache, etc.
+        use std::io::Cursor;
+
+        // A mock metadata struct to test the tuple context parameters `(Ctx1, Ctx2)`
+        #[derive(Debug, PartialEq, DekuRead, DekuWrite, Clone)]
+        struct TestMeta(u8);
+
+        #[test]
+        fn test_commit_deku_serialization() {
+            let commit = Commit::new(ArithmeticDelta(42u32), TestMeta(7));
+            
+            // Pass Big Endian down to both the ArithmeticDelta and TestMeta
+            let ctx = (deku::ctx::Endian::Big, ());
+            
+            // 1. Serialize using Writer + Cursor
+            let mut buf = Vec::new();
+            let mut cursor_write = Cursor::new(&mut buf);
+            let mut writer = Writer::new(&mut cursor_write);
+            commit.to_writer(&mut writer, ctx).expect("Failed to serialize Commit");
+            
+            // 2. Deserialize using Reader + Cursor
+            let mut cursor_read = Cursor::new(&buf);
+            let mut reader = Reader::new(&mut cursor_read);
+            let deserialized = Commit::<ArithmeticDelta<u32>, TestMeta>::from_reader_with_ctx(&mut reader, ctx)
+                .expect("Failed to deserialize Commit");
+            
+            assert_eq!(commit, deserialized);
+        }
+
+        #[test]
+        fn test_timeline_deku_serialization() {
+            let mut timeline = Timeline::new();
+            timeline.push(Commit::new(ArithmeticDelta(10u32), TestMeta(1)));
+            timeline.push(Commit::new(ArithmeticDelta(20u32), TestMeta(2)));
+            timeline.push(Commit::new(ArithmeticDelta(30u32), TestMeta(3)));
+
+            let ctx = (deku::ctx::Endian::Big, ());
+
+            // Serialize
+            let mut buf = Vec::new();
+            let mut cursor_write = Cursor::new(&mut buf);
+            let mut writer = Writer::new(&mut cursor_write);
+            timeline.to_writer(&mut writer, ctx).expect("Failed to serialize Timeline");
+
+            // Deserialize
+            let mut cursor_read = Cursor::new(&buf);
+            let mut reader = Reader::new(&mut cursor_read);
+            let deserialized = Timeline::<ArithmeticDelta<u32>, TestMeta>::from_reader_with_ctx(&mut reader, ctx)
+                .expect("Failed to deserialize Timeline");
+
+            assert_eq!(timeline, deserialized);
+        }
+
+        #[test]
+        fn test_empty_timeline_deku_serialization() {
+            let timeline = Timeline::<ArithmeticDelta<u32>, TestMeta>::new();
+            let ctx = (deku::ctx::Endian::Big, ());
+
+            let mut buf = Vec::new();
+            let mut cursor_write = Cursor::new(&mut buf);
+            let mut writer = Writer::new(&mut cursor_write);
+            timeline.to_writer(&mut writer, ctx).expect("Failed to serialize empty Timeline");
+
+            let mut cursor_read = Cursor::new(&buf);
+            let mut reader = Reader::new(&mut cursor_read);
+            let deserialized = Timeline::<ArithmeticDelta<u32>, TestMeta>::from_reader_with_ctx(&mut reader, ctx)
+                .expect("Failed to deserialize empty Timeline");
+
+            assert_eq!(timeline, deserialized);
+        }
+
+        #[test]
+        fn test_state_cached_timeline_deku_serialization() {
+            let mut sct = StateCachedTimeline::<u32, ArithmeticDelta<u32>, TestMeta>::new(2, 100);
+            sct.push(Commit::new(ArithmeticDelta(10u32), TestMeta(1)));
+            sct.push(Commit::new(ArithmeticDelta(20u32), TestMeta(2)));
+
+            // StateCachedTimeline expects a 3-part context: (IncludeCache, DeltaCtx, MetaCtx)
+            // If your caching logic uses a different default enum variant, adjust `IncludeCache::Yes` to match.
+            let ctx = (IncludeCache::CacheAndTimeline, (deku::ctx::Endian::Big, ()), deku::ctx::Endian::Big);
+
+            // Serialize
+            let mut buf = Vec::new();
+            let mut cursor_write = Cursor::new(&mut buf);
+            let mut writer = Writer::new(&mut cursor_write);
+            sct.to_writer(&mut writer, ctx).expect("Failed to serialize StateCachedTimeline");
+
+            // Deserialize
+            let mut cursor_read = Cursor::new(&buf);
+            let mut reader = Reader::new(&mut cursor_read);
+            let deserialized = StateCachedTimeline::<u32, ArithmeticDelta<u32>, TestMeta>::from_reader_with_ctx(&mut reader, ctx)
+                .expect("Failed to deserialize StateCachedTimeline");
+            
+            // Assert properties instead of exact equality if caching state doesn't fully serialize,
+            // or just use standard Eq checks if your Deku impl matches it byte-for-byte.
+            assert_eq!(sct.len(), deserialized.len());
+            assert_eq!(sct.current_state(), deserialized.current_state());
+            assert_eq!(sct.get_state_before(0), deserialized.get_state_before(0));
+        }
     }
 }
