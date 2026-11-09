@@ -2,7 +2,7 @@
 use alloc::{collections::{BTreeMap, VecDeque}, vec::Vec, vec};
 
 #[cfg(feature = "deku")]
-use deku::{ctx::Endian, no_std_io::{Read, Seek, Write}, prelude::*};
+use deku::{no_std_io::{Read, Seek, Write}, prelude::*};
 #[cfg(feature = "macros")]
 pub use deltapatcher_macros::{Diff, Patch};
 
