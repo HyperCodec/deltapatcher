@@ -248,7 +248,7 @@ fn expand_enum(
                     .collect();
                 quote! {
                     (Self::#vname { #(#names),* }, Self::#vname { #(#names: #d_names),* }) => {
-                        #(<#dtypes as deltapatcher::delta::Delta>::aggregate(#names, #d_names);)*
+                        #(<#dtypes as deltapatcher::Delta>::aggregate(#names, #d_names);)*
                     }
                 }
             }
@@ -262,7 +262,7 @@ fn expand_enum(
                     .collect();
                 quote! {
                     (Self::#vname(#(#s_ids),*), Self::#vname(#(#d_ids),*)) => {
-                        #(<#dtypes as deltapatcher::delta::Delta>::aggregate(#s_ids, #d_ids);)*
+                        #(<#dtypes as deltapatcher::Delta>::aggregate(#s_ids, #d_ids);)*
                     }
                 }
             }
@@ -285,7 +285,7 @@ fn expand_enum(
                     .collect();
                 quote! {
                     (Self::#vname { #(#names),* }, Self::#vname { #(#names: #d_names),* }) => {
-                        #(<#dtypes as deltapatcher::delta::Delta>::aggregate_owned(#names, #d_names);)*
+                        #(<#dtypes as deltapatcher::Delta>::aggregate_owned(#names, #d_names);)*
                     }
                 }
             }
@@ -299,7 +299,7 @@ fn expand_enum(
                     .collect();
                 quote! {
                     (Self::#vname(#(#s_ids),*), Self::#vname(#(#d_ids),*)) => {
-                        #(<#dtypes as deltapatcher::delta::Delta>::aggregate_owned(#s_ids, #d_ids);)*
+                        #(<#dtypes as deltapatcher::Delta>::aggregate_owned(#s_ids, #d_ids);)*
                     }
                 }
             }
@@ -319,7 +319,7 @@ fn expand_enum(
             Replace(#ident),
         }
 
-        impl deltapatcher::delta::Delta for #delta_name {
+        impl deltapatcher::Delta for #delta_name {
             fn aggregate(&mut self, next: &Self) {
                 match (self, next) {
                     (slf, Self::Replace(val)) => *slf = Self::Replace(val.clone()),
@@ -413,13 +413,13 @@ fn expand_struct(
                     #(#field_vis #field_name: #delta_field_type),*
                 }
 
-                impl deltapatcher::delta::Delta for #delta_name {
+                impl deltapatcher::Delta for #delta_name {
                     fn aggregate(&mut self, next: &Self) {
-                        #(<#delta_field_type as deltapatcher::delta::Delta>::aggregate(&mut self.#field_name, &next.#field_name);)*
+                        #(<#delta_field_type as deltapatcher::Delta>::aggregate(&mut self.#field_name, &next.#field_name);)*
                     }
 
                     fn aggregate_owned(&mut self, next: Self) {
-                        #(<#delta_field_type as deltapatcher::delta::Delta>::aggregate_owned(&mut self.#field_name, next.#field_name);)*
+                        #(<#delta_field_type as deltapatcher::Delta>::aggregate_owned(&mut self.#field_name, next.#field_name);)*
                     }
                 }
 
@@ -456,13 +456,13 @@ fn expand_struct(
                 #delta_derive
                 #delta_vis struct #delta_name(#(#field_vis #delta_field_type),*);
 
-                impl deltapatcher::delta::Delta for #delta_name {
+                impl deltapatcher::Delta for #delta_name {
                     fn aggregate(&mut self, next: &Self) {
-                        #(<#delta_field_type as deltapatcher::delta::Delta>::aggregate(&mut self.#field_idx, &next.#field_idx);)*
+                        #(<#delta_field_type as deltapatcher::Delta>::aggregate(&mut self.#field_idx, &next.#field_idx);)*
                     }
 
                     fn aggregate_owned(&mut self, next: Self) {
-                        #(<#delta_field_type as deltapatcher::delta::Delta>::aggregate_owned(&mut self.#field_idx, next.#field_idx);)*
+                        #(<#delta_field_type as deltapatcher::Delta>::aggregate_owned(&mut self.#field_idx, next.#field_idx);)*
                     }
                 }
 
@@ -493,7 +493,7 @@ fn expand_struct(
                 #delta_derive
                 #delta_vis struct #delta_name;
 
-                impl deltapatcher::delta::Delta for #delta_name {
+                impl deltapatcher::Delta for #delta_name {
                     fn aggregate(&mut self, _next: &Self) {}
                     fn aggregate_owned(&mut self, _next: Self) {}
                 }

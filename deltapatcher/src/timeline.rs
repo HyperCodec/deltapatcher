@@ -4,7 +4,7 @@ use alloc::{vec, vec::Vec};
 #[cfg(feature = "deku")]
 use deku::{ctx::{Endian, Limit}, no_std_io::{Read, Seek, Write}, prelude::*};
 
-use crate::delta::{Delta, Diff};
+use crate::{Delta, Diff};
 
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -785,7 +785,7 @@ where
 mod tests {
     use alloc::string::String;
 
-use crate::delta::{ArithmeticDelta, Patch};
+    use crate::{Patch, delta::ArithmeticDelta};
 
     use super::*;
 
