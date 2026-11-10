@@ -40,9 +40,9 @@ jobs:
 
       # ── Rust toolchain ───────────────────────────────────────────────────
       - name: Install Rust (stable ≥ 1.85 for edition 2024)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: stable
+          toolchain: nightly
 
       # ── Cargo registry & build cache ─────────────────────────────────────
       - name: Cache Cargo registry & build artifacts

@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! A library for computing, composing, and applying **deltas** between states.
 //!
@@ -33,7 +34,7 @@
 //! [`StateCachedTimeline<T, D, M>`][timeline::StateCachedTimeline] adds periodic state
 //! snapshots at a configurable interval, reducing arbitrary state-retrieval and delta-query
 //! cost from `O(N)` to `O(interval)`. It also supports efficient **bidirectional** seeking via
-//! [`diff_between`][timeline::StateCachedTimeline::diff_between] — the same call handles both
+//! [`delta_between`][timeline::StateCachedTimeline::delta_between] — the same call handles both
 //! forward and inverse (backward) deltas.
 //!
 //! # Utilities

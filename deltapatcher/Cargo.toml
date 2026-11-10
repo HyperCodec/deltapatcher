@@ -13,6 +13,10 @@ keywords = ["delta", "diff", "patch", "state", "timeline"]
 categories = ["data-structures", "algorithms"]
 publish = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 deku = { version = "0.20.3", default-features = false, optional = true }
 deltapatcher-macros = { workspace = true, optional = true }

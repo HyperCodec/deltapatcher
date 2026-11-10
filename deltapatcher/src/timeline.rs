@@ -609,7 +609,7 @@ where
     /// instead of `O(N)` linear delta aggregation.
     ///
     /// It reconstructs the state before `start` and the state before `end`,
-    /// then calls [`diff`][Differentiable::diff] directly between them.
+    /// then calls [`diff`][Diff::diff] directly between them.
     /// 
     /// This is almost always preferable to using regular [`get_aggregate`][Timeline::get_aggregate],
     /// except for when the cost of diffing two states completely eclipses the cost of aggregating `N` deltas.
