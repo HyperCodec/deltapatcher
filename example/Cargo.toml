@@ -18,18 +18,25 @@ required-features = ["macros"]
 [[bin]]
 name = "serde"
 path = "src/bin/serde.rs"
-required-features = ["serde_json"]
+required-features = ["serde"]
 
 [[bin]]
 name = "video_stream"
 path = "src/bin/video_stream.rs"
 
+[[bin]]
+name = "deku"
+path = "src/bin/deku.rs"
+required-features = ["deku"]
+
 [features]
 default = []
 macros = ["deltapatcher/macros"]
-serde_json = ["dep:serde_json", "deltapatcher/serde"]
+serde = ["dep:serde_json", "deltapatcher/serde"]
+deku = ["dep:deku", "deltapatcher/deku"]
 
 [dependencies]
+deku = { version = "0.20.3", optional = true }
 rand = "0.10.2"
 serde_json = { version = "1.0.151", optional = true }
 
