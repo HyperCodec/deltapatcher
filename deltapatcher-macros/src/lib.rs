@@ -507,3 +507,60 @@ fn expand_struct(
         }
     })
 }
+
+/// Derives [`WrappingArithmetic`] for a struct.
+/// Applies `wrapping_add` and `wrapping_sub` to all fields.
+#[proc_macro_derive(WrappingArithmetic)]
+pub fn derive_wrapping_arithmetic(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    expand_wrapping_arithmetic(ast)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+fn expand_wrapping_arithmetic(ast: DeriveInput) -> syn::Result<TokenStream2> {
+    let ident = &ast.ident;
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+
+    let data_struct = match ast.data {
+        Data::Struct(s) => s,
+        Data::Enum(_) | Data::Union(_) => {
+            return Err(syn::Error::new(
+                Span::call_site(),
+                "WrappingArithmetic can only be derived for structs",
+            ));
+        }
+    };
+
+    let (add_body, sub_body) = match data_struct.fields {
+        syn::Fields::Named(n) => {
+            let names: Vec<_> = n.named.iter().map(|f| f.ident.as_ref().unwrap()).collect();
+            let add = quote! { Self { #(#names: self.#names.wrapping_add(rhs.#names)),* } };
+            let sub = quote! { Self { #(#names: self.#names.wrapping_sub(rhs.#names)),* } };
+            (add, sub)
+        }
+        syn::Fields::Unnamed(un) => {
+            let indices: Vec<_> = (0..un.unnamed.len()).map(syn::Index::from).collect();
+            let add = quote! { Self(#(self.#indices.wrapping_add(rhs.#indices)),*) };
+            let sub = quote! { Self(#(self.#indices.wrapping_sub(rhs.#indices)),*) };
+            (add, sub)
+        }
+        syn::Fields::Unit => {
+            (quote! { self }, quote! { self })
+        }
+    };
+
+    Ok(quote! {
+        impl #impl_generics WrappingArithmetic for #ident #ty_generics #where_clause {
+            #[inline]
+            fn wrapping_add(self, rhs: Self) -> Self {
+                #add_body
+            }
+
+            #[inline]
+            fn wrapping_sub(self, rhs: Self) -> Self {
+                #sub_body
+            }
+        }
+    })
+}

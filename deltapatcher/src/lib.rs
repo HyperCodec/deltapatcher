@@ -49,7 +49,7 @@
 //! |---|---|
 //! | `std` | Enabled by default, adding a dependency on the standard library. Remove this feature for `no_std` environments. |
 //! | `alloc` | Enabled by default, linking the `alloc` crate. This is required for timelines and allocating deltas such as `SliceDelta`.
-//! | `macros` | Enables `#[derive(Diff)]` and `#[derive(Patch)]` proc-macros for structs and enums |
+//! | `macros` | Enables proc-macros to auto-generate many of the trait implementations from this crate. |
 //! | `serde` | Derives `serde::Serialize`/`Deserialize` on all delta and timeline types |
 
 pub mod delta;

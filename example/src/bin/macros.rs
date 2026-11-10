@@ -1,4 +1,4 @@
-use deltapatcher::{Diff, Patch, Delta, delta::{ArithmeticDelta, WrappingArithmetic}};
+use deltapatcher::{Delta, Diff, Patch, delta::{ArithmeticDelta, WrappingArithmetic}};
 
 // ── Struct example (Diff & Patch) ─────────────────────────────────────────────
 
@@ -12,6 +12,10 @@ use deltapatcher::{Diff, Patch, Delta, delta::{ArithmeticDelta, WrappingArithmet
     // We can also specify things to derive on this generated delta type.
     delta_derive(Debug, Clone),
 )]
+// Note that we can also just implement WrappingArithmetic on IVec2 and use 
+// ArithmeticDelta<IVec2> for differentiation. This is because any type with 
+// WrappingArithmetic also implements Diff<ArithmeticDelta<Self>>.
+#[derive(WrappingArithmetic)]
 struct IVec2 {
     // These field-level attributes are required
     #[deltapatcher(delta_ty = ArithmeticDelta<i32>)]
@@ -21,24 +25,6 @@ struct IVec2 {
     y: i32,
 }
 
-// Note that we can also just implement WrappingArithmetic on IVec2 and use 
-// ArithmeticDelta<IVec2> for differentiation. This is because any type with 
-// WrappingArithmetic also implements Diff<ArithmeticDelta<Self>>.
-impl WrappingArithmetic for IVec2 {
-    fn wrapping_add(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.wrapping_add(rhs.x),
-            y: self.y.wrapping_add(rhs.y),
-        }
-    }
-
-    fn wrapping_sub(self, rhs: Self) -> Self {
-        Self {
-            x: self.x.wrapping_sub(rhs.x),
-            y: self.y.wrapping_sub(rhs.y)
-        }
-    }
-}
 
 // ── Patch-Only Struct example ─────────────────────────────────────────────────
 
