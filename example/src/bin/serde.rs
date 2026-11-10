@@ -1,4 +1,4 @@
-use deltapatcher::{Diff, Patch, delta::ArithmeticDelta, timeline::{Commit, StateCachedTimeline, Timeline}};
+use deltapatcher::{Diff, Patch, delta::{ArithmeticDelta, SliceDelta}, timeline::{Commit, StateCachedTimeline, Timeline}};
 
 fn main() {
     // --- Serialize and deserialize a SliceDelta ---
@@ -11,7 +11,7 @@ fn main() {
     println!("{serialized}\n");
 
     // Deserialize back and verify it produces the same patch result
-    let deserialized: deltapatcher::delta::SliceDelta<u32> =
+    let deserialized: SliceDelta<u32> =
         serde_json::from_str(&serialized).unwrap();
 
     let mut patched = initial.clone();

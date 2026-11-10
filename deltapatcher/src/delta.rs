@@ -808,9 +808,18 @@ where
     }
 }
 
-// arithmetic overflow is necessary for some edge cases to work properly
+/// A trait that implements wrapping (overflow) addition and subtraction.
+/// It is primarily used within [`ArithmeticDelta`] for generics.
+/// With standard library integers like [`i32`], these methods are identical to the provided
+/// [`wrapping_add`][i32::wrapping_add] and [`wrapping_sub`][i32::wrapping_sub] definitions for those types
+/// (`std` doesn't provide traits for overflow operations for some reason; only methods).
 pub trait WrappingArithmetic: Copy {
+    /// Add `rhs` to `Self`, returning a value wrapped
+    /// about the maximum and minimum values for this type.
     fn wrapping_add(self, rhs: Self) -> Self;
+    
+    /// Subtract `rhs` from `Self`, returning a value
+    /// wrapped about the maximum and minimum values for this type.
     fn wrapping_sub(self, rhs: Self) -> Self;
 }
 
@@ -836,10 +845,14 @@ impl_wrapping_arith! {
     u16,
     u32,
     u64,
+    u128,
+    usize,
     i8,
     i16,
     i32,
-    i64
+    i64,
+    i128,
+    isize
 }
 
 impl<T: WrappingArithmetic> Diff<ArithmeticDelta<Self>> for T
