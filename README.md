@@ -199,11 +199,11 @@ just run-example video_stream
 ## Roadmap
 
 * **More built-in delta types**
-* `MapDelta` — key-level insert/remove/update entries
-* `SetDelta` — insertion and removal sets for `HashSet` / `BTreeSet`
-* `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
-* `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
-* `MyersSliceDelta` — Myers algorithm for huge slice diffing.
+    * `MapDelta` — key-level insert/remove/update entries
+    * `SetDelta` — insertion and removal sets for `HashSet` / `BTreeSet`
+    * `BitmapDelta` — XOR-based delta for `u8`/`u32`/`u64` bitfields, useful for flag sets and masks
+    * `StringDelta` — character- or byte-level diff for `String` / `&str`, wrapping `SliceDelta` with UTF-8 awareness
+    * `MyersSliceDelta` — Myers algorithm for huge slice diffing.
 
 * **Reversible delta trait** — a `ReversibleDelta` trait (or an `invert()` method) so types can cheaply produce their own inverse without needing a `StateCachedTimeline` to reconstruct two states and call `diff`.
 * **Async / streaming timeline** — a `StreamingTimeline` adapter that yields commits as a `Stream`, targeting networked applications that push state changes in real time.
