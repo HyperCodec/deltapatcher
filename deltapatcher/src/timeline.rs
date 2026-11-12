@@ -1,3 +1,6 @@
+#[cfg(feature = "deku")]
+pub mod streaming;
+
 use core::{ops::{Bound, Deref, DerefMut, RangeBounds}, slice::SliceIndex};
 
 use alloc::{vec, vec::Vec};

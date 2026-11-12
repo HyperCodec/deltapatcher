@@ -18,9 +18,18 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-deku = { version = "0.20.3", default-features = false, optional = true }
 deltapatcher-macros = { workspace = true, optional = true }
-serde = { version = "1.0.229", features = ["derive"], optional = true }
+
+[dependencies.serde]
+version = "1.0.229"
+optional = true
+features = ["derive"] 
+
+[dependencies.deku]
+version = "0.20.3"
+optional = true
+default-features = false
+features = ["bits"]
 
 [features]
 default = ["std", "macros"]
